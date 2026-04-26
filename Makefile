@@ -1,12 +1,12 @@
 GO ?= go
 GOCACHE ?= $(CURDIR)/.gocache
 
-SIGNAL_ADDR ?= 127.0.0.1:8080
-SERVER_URL ?= http://127.0.0.1:8080
+SIGNAL_ADDR ?= 203.178.143.72:8080
+SERVER_URL ?= http://203.178.143.72:8080
 SESSION_ID ?= demo
 WIFI_IFACE ?=
 RSSI_THRESHOLD ?= -75
-RSSI_HYSTERESIS ?= 4
+SIGNAL_POLL_INTERVAL ?= 200ms
 GATHER_IFACES ?=
 POLL_TIMEOUT ?= 25s
 
@@ -27,7 +27,7 @@ peer:
 		--remote-peer-id $(REMOTE_PEER_ID) \
 		--wifi-iface $(WIFI_IFACE) \
 		--rssi-threshold $(RSSI_THRESHOLD) \
-		--rssi-hysteresis $(RSSI_HYSTERESIS) \
+		--signal-poll-interval $(SIGNAL_POLL_INTERVAL) \
 		--gather-ifaces $(GATHER_IFACES) \
 		--poll-timeout $(POLL_TIMEOUT) \
 		$(if $(CONTROLLING),--controlling,)

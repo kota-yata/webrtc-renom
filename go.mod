@@ -3,16 +3,17 @@ module ice-signal-renom
 go 1.24.0
 
 require (
-	github.com/mdlayher/genetlink v1.3.2
-	github.com/mdlayher/netlink v1.8.0
+	github.com/mdlayher/wifi v0.7.2
 	github.com/pion/ice/v4 v4.2.5
 	github.com/pion/logging v0.2.4
 	github.com/pion/webrtc/v4 v4.1.6
 )
 
 require (
-	github.com/google/go-cmp v0.5.9 // indirect
+	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/mdlayher/genetlink v1.3.2 // indirect
+	github.com/mdlayher/netlink v1.8.0 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/pion/datachannel v1.6.0 // indirect
 	github.com/pion/dtls/v3 v3.1.2 // indirect

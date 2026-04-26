@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"runtime"
 	"strings"
 	"time"
 
@@ -12,16 +11,16 @@ import (
 )
 
 type PeerConfig struct {
-	Controlling    bool
-	SessionID      string
-	PeerID         string
-	RemotePeerID   string
-	ServerURL      string
-	WifiIfName     string
-	RSSIThreshold  int
-	RSSIHysteresis int
-	GatherIfaces   []string
-	PollTimeout    time.Duration
+	Controlling        bool
+	SessionID          string
+	PeerID             string
+	RemotePeerID       string
+	ServerURL          string
+	WifiIfName         string
+	RSSIThreshold      int
+	SignalPollInterval time.Duration
+	GatherIfaces       []string
+	PollTimeout        time.Duration
 }
 
 type Peer struct {
@@ -37,12 +36,9 @@ func NewPeer(cfg PeerConfig) (*Peer, error) {
 	if cfg.PollTimeout <= 0 {
 		cfg.PollTimeout = 25 * time.Second
 	}
-	if cfg.WifiIfName == "" {
-		if wifiIfName, err := PreferredWiFiInterfaceName(); err == nil {
-			cfg.WifiIfName = wifiIfName
-		}
+	if cfg.SignalPollInterval <= 0 {
+		cfg.SignalPollInterval = 200 * time.Millisecond
 	}
-
 	endpoint, err := newManualEndpoint(endpointConfig{
 		Controlling:      cfg.Controlling,
 		GatherInterfaces: cfg.GatherIfaces,
@@ -118,20 +114,11 @@ func (p *Peer) Run(ctx context.Context) error {
 		return fmt.Errorf("send ICE auth: %w", err)
 	}
 
-	var monitor *nl80211Monitor
-	if runtime.GOOS == "linux" {
-		monitor, err = newNL80211Monitor(p.cfg.WifiIfName)
-		if err != nil {
-			log.Printf("nl80211 unavailable, continuing without CQM monitor: %v", err)
-		} else {
-			defer monitor.Close()
-			if err := monitor.JoinGroups("mlme"); err != nil {
-				log.Printf("joining nl80211 groups failed: %v", err)
-			}
-			if err := monitor.ConfigureRSSIThreshold(int32(p.cfg.RSSIThreshold), uint32(p.cfg.RSSIHysteresis)); err != nil {
-				log.Printf("configuring CQM failed: %v", err)
-			}
-		}
+	monitor, err := newSignalMonitor(p.cfg.WifiIfName, p.cfg.RSSIThreshold, p.cfg.SignalPollInterval)
+	if err != nil {
+		log.Printf("signal polling unavailable, continuing without signal monitor: %v", err)
+	} else {
+		defer monitor.Close()
 	}
 
 	var remoteParams webrtc.ICEParameters
@@ -146,14 +133,10 @@ func (p *Peer) Run(ctx context.Context) error {
 	}
 
 	if monitor != nil {
-		events := monitor.Watch(ctx, int32(p.cfg.RSSIThreshold))
+		events := monitor.Watch(ctx)
 		go func() {
 			for ev := range events {
-				log.Printf("CQM notify if=%s rssi=%d threshold=%d low=%t", ev.IfName, ev.RSSI, ev.Threshold, ev.IsLow)
-				if !ev.IsLow {
-					continue
-				}
-
+				log.Printf("signal low if=%s rssi=%d threshold=%d", ev.IfName, ev.RSSI, ev.Threshold)
 				if err := p.endpoint.ForceHandoverToCellular(); err != nil {
 					log.Printf("manual handover failed: %v", err)
 				}

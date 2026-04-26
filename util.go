@@ -115,21 +115,6 @@ func ListActiveInterfaceAddrs() ([]InterfaceAddress, error) {
 	return out, nil
 }
 
-func PreferredWiFiInterfaceName() (string, error) {
-	addrs, err := ListActiveInterfaceAddrs()
-	if err != nil {
-		return "", err
-	}
-
-	for _, addr := range addrs {
-		if addr.IsWiFi {
-			return addr.Name, nil
-		}
-	}
-
-	return "", fmt.Errorf("no active Wi-Fi interface found")
-}
-
 func isWiFiInterface(ifaceName string) bool {
 	if strings.HasPrefix(ifaceName, "wlan") || strings.HasPrefix(ifaceName, "wl") {
 		return true
