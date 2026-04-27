@@ -10,6 +10,7 @@ import (
 
 	"github.com/pion/ice/v4"
 	"github.com/pion/logging"
+	"github.com/pion/stun/v3"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -28,6 +29,7 @@ type manualEndpoint struct {
 type endpointConfig struct {
 	Controlling      bool
 	GatherInterfaces []string
+	ICEServers       []webrtc.ICEServer
 }
 
 func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
@@ -55,15 +57,23 @@ func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 		agentOpts = append(agentOpts, ice.WithRenomination(ice.DefaultNominationValueGenerator()))
 	}
 
+	api := webrtc.NewAPI()
+	gatherer, err := api.NewICEGatherer(webrtc.ICEGatherOptions{
+		ICEServers: cfg.ICEServers,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create ICE gatherer: %w", err)
+	}
+
+	iceServerURLs, err := iceGathererValidatedServers(gatherer)
+	if err != nil {
+		return nil, err
+	}
+	agentOpts = append(agentOpts, ice.WithUrls(iceServerURLs))
+
 	agent, err := ice.NewAgentWithOptions(agentOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("create ICE agent: %w", err)
-	}
-
-	api := webrtc.NewAPI()
-	gatherer, err := api.NewICEGatherer(webrtc.ICEGatherOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("create ICE gatherer: %w", err)
 	}
 
 	if err := injectCustomAgent(gatherer, agent); err != nil {
@@ -165,6 +175,14 @@ func (e *manualEndpoint) ForceHandoverToCellular() error {
 		return errors.New("manual renomination requires the controlling side")
 	}
 
+	// Handover policy:
+	// - The controlling side performs manual renomination only.
+	// - The local candidate must be a relay candidate whose base/related
+	//   address belongs to a cellular-like interface.
+	// - The remote candidate must also be a relay candidate.
+	// - A succeeded or already nominated relay pair is preferred, but any
+	//   matching relay/relay pair is used immediately so Wi-Fi loss falls back
+	//   to the relay path without waiting for the "best" pair selection.
 	localCandidates, err := e.agent.GetLocalCandidates()
 	if err != nil {
 		return fmt.Errorf("list local candidates: %w", err)
@@ -184,48 +202,59 @@ func (e *manualEndpoint) ForceHandoverToCellular() error {
 
 	stats := e.agent.GetCandidatePairsStats()
 	var (
-		bestLocal  ice.Candidate
-		bestRemote ice.Candidate
-		bestScore  int64 = -1
+		relayLocal  ice.Candidate
+		relayRemote ice.Candidate
 	)
 
 	for _, stat := range stats {
-		if stat.State != ice.CandidatePairStateSucceeded {
-			continue
-		}
-
 		local := locals[stat.LocalCandidateID]
 		remote := remotes[stat.RemoteCandidateID]
 		if local == nil || remote == nil {
 			continue
 		}
 
-		ifaceName, _ := interfaceNameForIP(local.Address())
-		isCellularLike := isCellularLikeInterface(ifaceName)
-		score := int64(local.Priority())
-		if isCellularLike {
-			score += 1 << 32
-		}
-		if stat.Nominated {
-			score += 1 << 20
+		localIface, localIfaceOK := candidateInterfaceName(local)
+		localIsCellularRelay := local.Type() == ice.CandidateTypeRelay && localIfaceOK && isCellularLikeInterface(localIface)
+		remoteIsRelay := remote.Type() == ice.CandidateTypeRelay
+
+		log.Printf("candidate pair local=%s type=%s iface=%s remote=%s type=%s state=%s nominated=%t cellular_relay=%t remote_relay=%t",
+			local.Address(), local.Type(), localIface, remote.Address(), remote.Type(), stat.State, stat.Nominated, localIsCellularRelay, remoteIsRelay)
+
+		if !localIsCellularRelay || !remoteIsRelay {
+			continue
 		}
 
-		log.Printf("candidate pair local=%s iface=%s remote=%s isCellularLike=%t score=%d",
-			local.Address(), ifaceName, remote.Address(), isCellularLike, score)
-
-		if score > bestScore {
-			bestScore = score
-			bestLocal = local
-			bestRemote = remote
+		relayLocal = local
+		relayRemote = remote
+		if stat.State == ice.CandidatePairStateSucceeded || stat.Nominated {
+			break
 		}
 	}
 
-	if bestLocal == nil || bestRemote == nil {
-		return errors.New("no succeeded candidate pair matched the cellular policy")
+	if relayLocal == nil || relayRemote == nil {
+		return errors.New("no cellular relay to remote relay candidate pair found")
 	}
 
-	log.Printf("forcing handover via local=%s remote=%s", bestLocal, bestRemote)
-	return e.agent.RenominateCandidate(bestLocal, bestRemote)
+	log.Printf("forcing relay handover via local=%s remote=%s", relayLocal, relayRemote)
+	return e.agent.RenominateCandidate(relayLocal, relayRemote)
+}
+
+func candidateInterfaceName(c ice.Candidate) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+
+	if related := c.RelatedAddress(); related != nil && related.Address != "" {
+		if ifaceName, err := interfaceNameForIP(related.Address); err == nil {
+			return ifaceName, true
+		}
+	}
+
+	if ifaceName, err := interfaceNameForIP(c.Address()); err == nil {
+		return ifaceName, true
+	}
+
+	return "", false
 }
 
 func injectCustomAgent(g *webrtc.ICEGatherer, agent *ice.Agent) error {
@@ -242,4 +271,23 @@ func injectCustomAgent(g *webrtc.ICEGatherer, agent *ice.Agent) error {
 
 	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Set(reflect.ValueOf(agent))
 	return nil
+}
+
+func iceGathererValidatedServers(g *webrtc.ICEGatherer) ([]*stun.URI, error) {
+	v := reflect.ValueOf(g)
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return nil, errors.New("nil ICEGatherer")
+	}
+
+	elem := v.Elem()
+	field := elem.FieldByName("validatedServers")
+	if !field.IsValid() {
+		return nil, errors.New("ICEGatherer.validatedServers field not found")
+	}
+
+	urls, ok := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Interface().([]*stun.URI)
+	if !ok {
+		return nil, errors.New("ICEGatherer.validatedServers field has unexpected type")
+	}
+	return urls, nil
 }

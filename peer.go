@@ -11,16 +11,15 @@ import (
 )
 
 type PeerConfig struct {
-	Controlling        bool
-	SessionID          string
-	PeerID             string
-	RemotePeerID       string
-	ServerURL          string
-	WifiIfName         string
-	RSSIThreshold      int
-	SignalPollInterval time.Duration
-	GatherIfaces       []string
-	PollTimeout        time.Duration
+	Controlling  bool
+	SessionID    string
+	PeerID       string
+	RemotePeerID string
+	ServerURL    string
+	WifiIfName   string
+	GatherIfaces []string
+	ICEServers   []webrtc.ICEServer
+	PollTimeout  time.Duration
 }
 
 type Peer struct {
@@ -36,12 +35,10 @@ func NewPeer(cfg PeerConfig) (*Peer, error) {
 	if cfg.PollTimeout <= 0 {
 		cfg.PollTimeout = 25 * time.Second
 	}
-	if cfg.SignalPollInterval <= 0 {
-		cfg.SignalPollInterval = 200 * time.Millisecond
-	}
 	endpoint, err := newManualEndpoint(endpointConfig{
 		Controlling:      cfg.Controlling,
 		GatherInterfaces: cfg.GatherIfaces,
+		ICEServers:       cfg.ICEServers,
 	})
 	if err != nil {
 		return nil, err
@@ -114,9 +111,9 @@ func (p *Peer) Run(ctx context.Context) error {
 		return fmt.Errorf("send ICE auth: %w", err)
 	}
 
-	monitor, err := newSignalMonitor(p.cfg.WifiIfName, p.cfg.RSSIThreshold, p.cfg.SignalPollInterval)
+	monitor, err := newSignalMonitor(p.cfg.WifiIfName)
 	if err != nil {
-		log.Printf("signal polling unavailable, continuing without signal monitor: %v", err)
+		log.Printf("WiFi address monitoring unavailable, continuing without monitor: %v", err)
 	} else {
 		defer monitor.Close()
 	}
@@ -136,7 +133,7 @@ func (p *Peer) Run(ctx context.Context) error {
 		events := monitor.Watch(ctx)
 		go func() {
 			for ev := range events {
-				log.Printf("signal low if=%s rssi=%d threshold=%d", ev.IfName, ev.RSSI, ev.Threshold)
+				log.Printf("WiFi disabled or disconnected if=%s removed_ip=%s", ev.IfName, ev.RemovedIP)
 				if err := p.endpoint.ForceHandoverToCellular(); err != nil {
 					log.Printf("manual handover failed: %v", err)
 				}

@@ -5,6 +5,8 @@ import (
 	"net"
 	"runtime"
 	"strings"
+
+	"github.com/pion/webrtc/v4"
 )
 
 func interfaceNameForIP(ip string) (string, error) {
@@ -59,6 +61,24 @@ func SplitCSV(s string) []string {
 	}
 
 	return out
+}
+
+func ICEServersFromFlags(urls, username, credential string) []webrtc.ICEServer {
+	parsedURLs := SplitCSV(urls)
+	if len(parsedURLs) == 0 {
+		return nil
+	}
+
+	server := webrtc.ICEServer{
+		URLs: parsedURLs,
+	}
+	if username != "" || credential != "" {
+		server.Username = username
+		server.Credential = credential
+		server.CredentialType = webrtc.ICECredentialTypePassword
+	}
+
+	return []webrtc.ICEServer{server}
 }
 
 type InterfaceAddress struct {

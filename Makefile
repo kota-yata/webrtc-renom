@@ -5,9 +5,10 @@ SIGNAL_ADDR ?= 203.178.143.72:8080
 SERVER_URL ?= http://203.178.143.72:8080
 SESSION_ID ?= demo
 WIFI_IFACE ?=
-RSSI_THRESHOLD ?= -75
-SIGNAL_POLL_INTERVAL ?= 200ms
 GATHER_IFACES ?=
+ICE_SERVERS ?=
+ICE_USERNAME ?=
+ICE_CREDENTIAL ?=
 POLL_TIMEOUT ?= 25s
 
 .PHONY: build signaling-server peer run-signal run-peer-a run-peer-b clean
@@ -26,9 +27,10 @@ peer:
 		--peer-id $(PEER_ID) \
 		--remote-peer-id $(REMOTE_PEER_ID) \
 		--wifi-iface $(WIFI_IFACE) \
-		--rssi-threshold $(RSSI_THRESHOLD) \
-		--signal-poll-interval $(SIGNAL_POLL_INTERVAL) \
 		--gather-ifaces $(GATHER_IFACES) \
+		--ice-servers $(ICE_SERVERS) \
+		--ice-username $(ICE_USERNAME) \
+		--ice-credential $(ICE_CREDENTIAL) \
 		--poll-timeout $(POLL_TIMEOUT) \
 		$(if $(CONTROLLING),--controlling,)
 

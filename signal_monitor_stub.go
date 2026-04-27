@@ -1,23 +1,22 @@
-//go:build !linux
+//go:build !linux && !android
 
 package renom
 
 import (
 	"context"
 	"fmt"
-	"time"
+	"net"
 )
 
 type signalEvent struct {
 	IfName    string
-	RSSI      int
-	Threshold int
+	RemovedIP net.IP
 }
 
 type signalMonitor struct{}
 
-func newSignalMonitor(string, int, time.Duration) (*signalMonitor, error) {
-	return nil, fmt.Errorf("signal polling is only implemented on linux")
+func newSignalMonitor(string) (*signalMonitor, error) {
+	return nil, fmt.Errorf("WiFi address monitoring is only implemented on linux")
 }
 
 func (*signalMonitor) Close() error {
