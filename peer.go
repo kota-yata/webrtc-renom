@@ -131,9 +131,10 @@ func (p *Peer) Run(ctx context.Context) error {
 		return ctx.Err()
 	}
 
-	if err := p.endpoint.StartTransport(remoteParams); err != nil {
+	if err := p.endpoint.StartTransport(ctx, remoteParams); err != nil {
 		return fmt.Errorf("ICE transport start failed: %w", err)
 	}
+	p.startAudioStreaming()
 
 	if monitor != nil {
 		events := monitor.Watch(ctx)
@@ -150,6 +151,33 @@ func (p *Peer) Run(ctx context.Context) error {
 	log.Printf("peer is running; session=%s peer=%s controlling=%t", p.cfg.SessionID, p.cfg.PeerID, p.cfg.Controlling)
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+func (p *Peer) startAudioStreaming() {
+	conn := p.endpoint.Conn()
+	if conn == nil {
+		log.Printf("audio streaming unavailable: ICE connection is nil")
+		return
+	}
+
+	if p.cfg.Controlling {
+		go func() {
+			log.Printf("controlling peer waiting to receive 440hz.mp3 audio stream")
+			audioReceiver := NewAudioReceiver(conn)
+			if err := audioReceiver.ReceiveAudio(); err != nil {
+				log.Printf("controlling peer audio receiving failed: %v", err)
+			}
+		}()
+		return
+	}
+
+	go func() {
+		log.Printf("controlled peer starting 440hz.mp3 audio stream")
+		audioStreamer := NewAudioStreamer(conn)
+		if err := audioStreamer.StreamAudio(); err != nil {
+			log.Printf("controlled peer audio streaming failed: %v", err)
+		}
+	}()
 }
 
 func (p *Peer) pollSignalEvents(ctx context.Context, remoteParamsCh chan<- webrtc.ICEParameters) {

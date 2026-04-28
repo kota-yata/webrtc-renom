@@ -1,6 +1,7 @@
 package renom
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ type manualEndpoint struct {
 	gatherer  *webrtc.ICEGatherer
 	transport *webrtc.ICETransport
 	agent     *ice.Agent
+	conn      *ice.Conn
 	role      webrtc.ICERole
 
 	remoteMu              sync.RWMutex
@@ -149,8 +151,30 @@ func (e *manualEndpoint) LocalParameters() (webrtc.ICEParameters, error) {
 	return e.gatherer.GetLocalParameters()
 }
 
-func (e *manualEndpoint) StartTransport(remote webrtc.ICEParameters) error {
-	return e.transport.Start(nil, remote, &e.role)
+func (e *manualEndpoint) StartTransport(ctx context.Context, remote webrtc.ICEParameters) error {
+	var (
+		conn *ice.Conn
+		err  error
+	)
+
+	switch e.role {
+	case webrtc.ICERoleControlling:
+		conn, err = e.agent.Dial(ctx, remote.UsernameFragment, remote.Password)
+	case webrtc.ICERoleControlled:
+		conn, err = e.agent.Accept(ctx, remote.UsernameFragment, remote.Password)
+	default:
+		err = fmt.Errorf("unknown ICE role: %s", e.role)
+	}
+	if err != nil {
+		return err
+	}
+
+	e.conn = conn
+	return nil
+}
+
+func (e *manualEndpoint) Conn() *ice.Conn {
+	return e.conn
 }
 
 func (e *manualEndpoint) AddRemoteCandidate(c webrtc.ICECandidate) error {
