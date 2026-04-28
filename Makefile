@@ -31,7 +31,7 @@ peer:
 		$(if $(CONTROLLING),--controlling,)
 
 run-signal:
-  go run ./cmd/signaling-server --listen $(SIGNAL_ADDR)
+	go run ./cmd/signaling-server --listen $(SIGNAL_ADDR)
 
 run-controlling-peer:
 	$(MAKE) peer PEER_ID=peer-a REMOTE_PEER_ID=peer-b CONTROLLING=1
