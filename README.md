@@ -13,3 +13,7 @@ make run-signal
 make run-controlling-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
 make run-controlled-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
 ```
+
+The signaling endpoint defaults to `https://203.178.143.72:7893`. The signaling
+server uses `./cert/server.crt` and `./cert/server.key`. Peers trust
+`./cert/server.crt` when connecting to the signaling server.

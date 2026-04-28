@@ -4,6 +4,7 @@ SIGNAL_ADDR ?= 0.0.0.0:7893
 SERVER_URL ?= https://203.178.143.72:7893
 TLS_CERT := $(CURDIR)/cert/server.crt
 TLS_KEY := $(CURDIR)/cert/server.key
+TLS_CA_CERT := $(TLS_CERT)
 CERT_CN ?= 203.178.143.72
 CERT_SAN ?= IP:203.178.143.72,IP:127.0.0.1,DNS:localhost
 SESSION_ID ?= demo
@@ -22,15 +23,16 @@ build:
 
 cert:
 	mkdir -p $(CURDIR)/cert
-	openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+	test -f $(TLS_CERT) -a -f $(TLS_KEY) || openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
 		-keyout $(TLS_KEY) \
 		-out $(TLS_CERT) \
 		-subj /CN=$(CERT_CN) \
 		-addext subjectAltName=$(CERT_SAN)
 
-peer:
+peer: cert
 	go run ./cmd/peer \
 		--server-url $(SERVER_URL) \
+		--tls-ca-cert $(TLS_CA_CERT) \
 		--session-id $(SESSION_ID) \
 		--peer-id $(PEER_ID) \
 		--remote-peer-id $(REMOTE_PEER_ID) \

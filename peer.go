@@ -16,6 +16,7 @@ type PeerConfig struct {
 	PeerID       string
 	RemotePeerID string
 	ServerURL    string
+	TLSCACert    string
 	WifiIfName   string
 	GatherIfaces []string
 	ICEServers   []webrtc.ICEServer
@@ -66,9 +67,14 @@ func NewPeer(cfg PeerConfig) (*Peer, error) {
 		log.Printf("discovered active interfaces: %s", strings.Join(summaries, ", "))
 	}
 
+	client, err := NewSignalingClientWithCACert(cfg.ServerURL, cfg.TLSCACert)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Peer{
 		cfg:      cfg,
-		client:   NewSignalingClient(cfg.ServerURL),
+		client:   client,
 		endpoint: endpoint,
 	}, nil
 }

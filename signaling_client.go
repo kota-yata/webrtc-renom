@@ -3,10 +3,13 @@ package renom
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +27,34 @@ func NewSignalingClient(baseURL string) *SignalingClient {
 			Timeout: 35 * time.Second,
 		},
 	}
+}
+
+func NewSignalingClientWithCACert(baseURL, caCertPath string) (*SignalingClient, error) {
+	client := NewSignalingClient(baseURL)
+	if caCertPath == "" {
+		return client, nil
+	}
+
+	certPEM, err := os.ReadFile(caCertPath)
+	if err != nil {
+		return nil, fmt.Errorf("read signaling CA cert: %w", err)
+	}
+
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		roots = x509.NewCertPool()
+	}
+	if ok := roots.AppendCertsFromPEM(certPEM); !ok {
+		return nil, fmt.Errorf("parse signaling CA cert %q", caCertPath)
+	}
+
+	client.httpClient.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			RootCAs: roots,
+		},
+	}
+
+	return client, nil
 }
 
 func (c *SignalingClient) Register(ctx context.Context, req RegisterRequest) error {
