@@ -5,4 +5,5 @@
 cert/
 
 signaling_server
+signaling-server
 peer
