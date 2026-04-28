@@ -1,7 +1,11 @@
 GOCACHE ?= $(CURDIR)/.gocache
 
 SIGNAL_ADDR ?= 0.0.0.0:7893
-SERVER_URL ?= http://203.178.143.72:7893
+SERVER_URL ?= https://203.178.143.72:7893
+TLS_CERT := $(CURDIR)/cert/server.crt
+TLS_KEY := $(CURDIR)/cert/server.key
+CERT_CN ?= 203.178.143.72
+CERT_SAN ?= IP:203.178.143.72,IP:127.0.0.1,DNS:localhost
 SESSION_ID ?= demo
 WIFI_IFACE ?=
 GATHER_IFACES ?=
@@ -10,11 +14,19 @@ ICE_USERNAME := cmp9
 ICE_CREDENTIAL := dc+zjBYP+nf+bC6gXvliLKNgzu8lR3XO
 POLL_TIMEOUT ?= 25s
 
-.PHONY: build peer run-signal run-controlling-peer run-controlled-peer clean
+.PHONY: build cert peer run-signal run-controlling-peer run-controlled-peer clean
 
 build:
 	go build ./cmd/peer
 	go build ./cmd/signaling-server
+
+cert:
+	mkdir -p $(CURDIR)/cert
+	openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+		-keyout $(TLS_KEY) \
+		-out $(TLS_CERT) \
+		-subj /CN=$(CERT_CN) \
+		-addext subjectAltName=$(CERT_SAN)
 
 peer:
 	go run ./cmd/peer \
@@ -30,8 +42,10 @@ peer:
 		--poll-timeout $(POLL_TIMEOUT) \
 		$(if $(CONTROLLING),--controlling,)
 
-run-signal:
-	go run ./cmd/signaling-server --listen $(SIGNAL_ADDR)
+run-signal: cert
+	go run ./cmd/signaling-server --listen $(SIGNAL_ADDR) \
+		--tls-cert $(TLS_CERT) \
+		--tls-key $(TLS_KEY)
 
 run-controlling-peer:
 	$(MAKE) peer PEER_ID=peer-a REMOTE_PEER_ID=peer-b CONTROLLING=1

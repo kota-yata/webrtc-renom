@@ -2,6 +2,7 @@
 **/.gocache
 **/.cache
 **/.codex
+cert/
 
 signaling_server
 peer

@@ -16,7 +16,7 @@ import (
 func main() {
 	var (
 		isControlling = flag.Bool("controlling", false, "run as the controlling side")
-		serverURL     = flag.String("server-url", "http://127.0.0.1:8080", "signaling server base URL")
+		serverURL     = flag.String("server-url", "https://127.0.0.1:8080", "signaling server base URL")
 		sessionID     = flag.String("session-id", "demo", "signaling session identifier")
 		peerID        = flag.String("peer-id", "peer-a", "local peer identifier")
 		remotePeerID  = flag.String("remote-peer-id", "peer-b", "remote peer identifier")

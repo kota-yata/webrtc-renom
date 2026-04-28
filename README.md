@@ -8,6 +8,7 @@ TURN URLs can be supplied with `--ice-servers`, `--ice-username`, and `--ice-cre
 
 ## Run
 ```sh
+make cert
 make run-signal
 make run-controlling-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
 make run-controlled-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
