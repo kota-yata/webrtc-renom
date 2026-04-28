@@ -7,13 +7,14 @@ Wi-Fi disable/disconnect is detected through netlink address updates.
 TURN URLs can be supplied with `--ice-servers`, `--ice-username`, and `--ice-credential`.
 
 ## Run
+On the signaling server:
 ```sh
 make cert
 make run-signal
+```
+
+On each peer:
+```sh
 make run-controlling-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
 make run-controlled-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
 ```
-
-The signaling endpoint defaults to `https://203.178.143.72:7893`. The signaling
-server uses `./cert/server.crt` and `./cert/server.key`. Peers trust
-`./cert/server.crt` when connecting to the signaling server.

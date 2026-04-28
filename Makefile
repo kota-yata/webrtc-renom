@@ -15,21 +15,26 @@ ICE_USERNAME := cmp9
 ICE_CREDENTIAL := dc+zjBYP+nf+bC6gXvliLKNgzu8lR3XO
 POLL_TIMEOUT ?= 25s
 
-.PHONY: build cert peer run-signal run-controlling-peer run-controlled-peer clean
+.PHONY: build cert check-tls-ca-cert peer run-signal run-controlling-peer run-controlled-peer clean
 
 build:
 	go build ./cmd/peer
 	go build ./cmd/signaling-server
 
-cert:
+cert: $(TLS_CERT) $(TLS_KEY)
+
+$(TLS_CERT) $(TLS_KEY):
 	mkdir -p $(CURDIR)/cert
-	test -f $(TLS_CERT) -a -f $(TLS_KEY) || openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+	openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
 		-keyout $(TLS_KEY) \
 		-out $(TLS_CERT) \
 		-subj /CN=$(CERT_CN) \
 		-addext subjectAltName=$(CERT_SAN)
 
-peer: cert
+check-tls-ca-cert:
+	test -f $(TLS_CA_CERT) || (echo "missing $(TLS_CA_CERT); copy cert/server.crt from the signaling server first" && false)
+
+peer: check-tls-ca-cert
 	go run ./cmd/peer \
 		--server-url $(SERVER_URL) \
 		--tls-ca-cert $(TLS_CA_CERT) \
