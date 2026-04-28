@@ -12,8 +12,6 @@ TLS_CA_CERT := $(TLS_CERT)
 CERT_CN ?= 203.178.143.72
 CERT_SAN ?= IP:203.178.143.72,IP:127.0.0.1,DNS:localhost
 SESSION_ID ?= demo
-WIFI_IFACE ?=
-GATHER_IFACES ?=
 ICE_SERVERS := turn:203.178.143.72:3478?transport=udp
 ICE_USERNAME := cmp9
 ICE_CREDENTIAL := dc+zjBYP+nf+bC6gXvliLKNgzu8lR3XO
@@ -45,8 +43,6 @@ peer: check-tls-ca-cert
 		--session-id $(SESSION_ID) \
 		--peer-id $(PEER_ID) \
 		--remote-peer-id $(REMOTE_PEER_ID) \
-		--wifi-iface $(WIFI_IFACE) \
-		--gather-ifaces $(GATHER_IFACES) \
 		--ice-servers '$(ICE_SERVERS)' \
 		--ice-username '$(ICE_USERNAME)' \
 		--ice-credential '$(ICE_CREDENTIAL)' \

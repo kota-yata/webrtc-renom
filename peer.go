@@ -17,8 +17,6 @@ type PeerConfig struct {
 	RemotePeerID string
 	ServerURL    string
 	TLSCACert    string
-	WifiIfName   string
-	GatherIfaces []string
 	ICEServers   []webrtc.ICEServer
 	PollTimeout  time.Duration
 }
@@ -37,9 +35,8 @@ func NewPeer(cfg PeerConfig) (*Peer, error) {
 		cfg.PollTimeout = 25 * time.Second
 	}
 	endpoint, err := newManualEndpoint(endpointConfig{
-		Controlling:      cfg.Controlling,
-		GatherInterfaces: cfg.GatherIfaces,
-		ICEServers:       cfg.ICEServers,
+		Controlling: cfg.Controlling,
+		ICEServers:  cfg.ICEServers,
 	})
 	if err != nil {
 		return nil, err
@@ -117,7 +114,7 @@ func (p *Peer) Run(ctx context.Context) error {
 		return fmt.Errorf("send ICE auth: %w", err)
 	}
 
-	monitor, err := newSignalMonitor(p.cfg.WifiIfName)
+	monitor, err := newSignalMonitor()
 	if err != nil {
 		log.Printf("WiFi address monitoring unavailable, continuing without monitor: %v", err)
 	} else {

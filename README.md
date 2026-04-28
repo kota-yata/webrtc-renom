@@ -15,6 +15,6 @@ make run-signal
 
 On each peer:
 ```sh
-make run-controlling-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
-make run-controlled-peer WIFI_IFACE=wlan0 GATHER_IFACES=wlan0,rmnet0
+make run-controlling-peer
+make run-controlled-peer
 ```

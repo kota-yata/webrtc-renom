@@ -21,8 +21,6 @@ func main() {
 		sessionID     = flag.String("session-id", "demo", "signaling session identifier")
 		peerID        = flag.String("peer-id", "peer-a", "local peer identifier")
 		remotePeerID  = flag.String("remote-peer-id", "peer-b", "remote peer identifier")
-		wifiIfName    = flag.String("wifi-iface", "", "WiFi interface to monitor; empty means auto-detect heuristically")
-		gatherIfaces  = flag.String("gather-ifaces", "", "optional comma separated list of interfaces to gather on")
 		iceServers    = flag.String("ice-servers", "", "optional comma separated list of STUN/TURN server URLs")
 		iceUsername   = flag.String("ice-username", "", "username for TURN server URLs")
 		iceCredential = flag.String("ice-credential", "", "credential for TURN server URLs")
@@ -40,8 +38,6 @@ func main() {
 		RemotePeerID: *remotePeerID,
 		ServerURL:    *serverURL,
 		TLSCACert:    *tlsCACert,
-		WifiIfName:   *wifiIfName,
-		GatherIfaces: renom.SplitCSV(*gatherIfaces),
 		ICEServers:   renom.ICEServersFromFlags(*iceServers, *iceUsername, *iceCredential),
 		PollTimeout:  *pollTimeout,
 	})

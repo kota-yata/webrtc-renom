@@ -15,7 +15,7 @@ type signalEvent struct {
 
 type signalMonitor struct{}
 
-func newSignalMonitor(string) (*signalMonitor, error) {
+func newSignalMonitor() (*signalMonitor, error) {
 	return nil, fmt.Errorf("WiFi address monitoring is only implemented on linux")
 }
 

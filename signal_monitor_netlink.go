@@ -22,8 +22,8 @@ type signalMonitor struct {
 	stopChan   chan struct{}
 }
 
-func newSignalMonitor(ifName string) (*signalMonitor, error) {
-	iface, err := wifiInterface(ifName)
+func newSignalMonitor() (*signalMonitor, error) {
+	iface, err := wifiInterface()
 	if err != nil {
 		return nil, err
 	}
@@ -90,21 +90,7 @@ func (m *signalMonitor) Watch(ctx context.Context) <-chan signalEvent {
 	return out
 }
 
-func wifiInterface(ifName string) (*net.Interface, error) {
-	if ifName != "" {
-		iface, err := net.InterfaceByName(ifName)
-		if err != nil {
-			return nil, fmt.Errorf("get WiFi interface %q: %w", ifName, err)
-		}
-		if (iface.Flags & net.FlagLoopback) != 0 {
-			return nil, fmt.Errorf("interface %q is loopback", ifName)
-		}
-		if !isWiFiInterface(iface.Name) {
-			return nil, fmt.Errorf("interface %q does not look like WiFi", ifName)
-		}
-		return iface, nil
-	}
-
+func wifiInterface() (*net.Interface, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("list network interfaces: %w", err)

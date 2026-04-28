@@ -29,30 +29,16 @@ type manualEndpoint struct {
 }
 
 type endpointConfig struct {
-	Controlling      bool
-	GatherInterfaces []string
-	ICEServers       []webrtc.ICEServer
+	Controlling bool
+	ICEServers  []webrtc.ICEServer
 }
 
 func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	loggerFactory.DefaultLogLevel = logging.LogLevelInfo
 
-	interfaceFilter := func(name string) bool {
-		if len(cfg.GatherInterfaces) == 0 {
-			return true
-		}
-		for _, allowed := range cfg.GatherInterfaces {
-			if name == allowed {
-				return true
-			}
-		}
-		return false
-	}
-
 	agentOpts := []ice.AgentOption{
 		ice.WithNetworkTypes([]ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6}),
-		ice.WithInterfaceFilter(interfaceFilter),
 		ice.WithLoggerFactory(loggerFactory),
 	}
 	if cfg.Controlling {
