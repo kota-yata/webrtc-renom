@@ -16,7 +16,7 @@ func TestSignalingServerRoutesByPeerID(t *testing.T) {
 		UsernameFragment: "ufrag-a",
 		Password:         "pwd-a",
 	}
-	server.enqueue("peer-b", SignalEvent{
+	server.enqueueForTest("peer-b", SignalEvent{
 		Type:       SignalEventAuth,
 		FromPeerID: "peer-a",
 		Params:     &params,
@@ -48,18 +48,55 @@ func TestSignalingServerRegisterClearsQueuedEvents(t *testing.T) {
 		UsernameFragment: "stale-ufrag",
 		Password:         "stale-pwd",
 	}
-	server.enqueue("peer-b", SignalEvent{
+	server.enqueueForTest("peer-b", SignalEvent{
 		Type:       SignalEventAuth,
 		FromPeerID: "peer-a",
 		Params:     &params,
 	})
 
-	server.registerPeer("peer-b")
+	server.registerPeer("peer-b", "peer-a")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
 	events, err := server.poll(ctx, "peer-b")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected poll timeout after register cleared queue, got events=%v err=%v", events, err)
+	}
+}
+
+func (s *SignalingServer) enqueueForTest(peerID string, ev SignalEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.enqueue(peerID, ev)
+}
+
+func TestSignalingServerPeerRegisteredRequiresMutualRegister(t *testing.T) {
+	server := NewSignalingServer()
+
+	server.registerPeer("peer-a", "peer-b")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	events, err := server.poll(ctx, "peer-a")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected peer-a poll timeout before peer-b register, got events=%v err=%v", events, err)
+	}
+
+	server.registerPeer("peer-b", "peer-a")
+
+	eventsA, err := server.poll(context.Background(), "peer-a")
+	if err != nil {
+		t.Fatalf("poll peer-a: %v", err)
+	}
+	if len(eventsA) != 1 || eventsA[0].Type != SignalEventPeerRegistered || eventsA[0].FromPeerID != "peer-b" {
+		t.Fatalf("unexpected peer-a events: %+v", eventsA)
+	}
+
+	eventsB, err := server.poll(context.Background(), "peer-b")
+	if err != nil {
+		t.Fatalf("poll peer-b: %v", err)
+	}
+	if len(eventsB) != 1 || eventsB[0].Type != SignalEventPeerRegistered || eventsB[0].FromPeerID != "peer-a" {
+		t.Fatalf("unexpected peer-b events: %+v", eventsB)
 	}
 }

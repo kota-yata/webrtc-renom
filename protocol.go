@@ -3,7 +3,8 @@ package renom
 import "github.com/pion/webrtc/v4"
 
 type RegisterRequest struct {
-	PeerID string `json:"peer_id"`
+	PeerID       string `json:"peer_id"`
+	RemotePeerID string `json:"remote_peer_id"`
 }
 
 type AuthMessage struct {
@@ -21,8 +22,9 @@ type CandidateMessage struct {
 type SignalEventType string
 
 const (
-	SignalEventAuth      SignalEventType = "auth"
-	SignalEventCandidate SignalEventType = "candidate"
+	SignalEventPeerRegistered SignalEventType = "peer_registered"
+	SignalEventAuth           SignalEventType = "auth"
+	SignalEventCandidate      SignalEventType = "candidate"
 )
 
 type SignalEvent struct {

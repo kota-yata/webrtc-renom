@@ -19,8 +19,9 @@ type SignalingServer struct {
 }
 
 type signalMailbox struct {
-	queue  []SignalEvent
-	waitCh chan struct{}
+	remotePeerID string
+	queue        []SignalEvent
+	waitCh       chan struct{}
 }
 
 func NewSignalingServer() *SignalingServer {
@@ -46,13 +47,13 @@ func (s *SignalingServer) handleRegister(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.PeerID == "" {
-		http.Error(w, "peer_id is required", http.StatusBadRequest)
+	if req.PeerID == "" || req.RemotePeerID == "" {
+		http.Error(w, "peer_id and remote_peer_id are required", http.StatusBadRequest)
 		return
 	}
 
-	s.registerPeer(req.PeerID)
-	log.Printf("signal register peer=%s remote=%s", req.PeerID, r.RemoteAddr)
+	s.registerPeer(req.PeerID, req.RemotePeerID)
+	log.Printf("signal register peer=%s remote_peer=%s remote=%s", req.PeerID, req.RemotePeerID, r.RemoteAddr)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -70,11 +71,13 @@ func (s *SignalingServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("signal auth from=%s to=%s ufrag=%s remote=%s", req.FromPeerID, req.ToPeerID, req.Params.UsernameFragment, r.RemoteAddr)
+	s.mu.Lock()
 	s.enqueue(req.ToPeerID, SignalEvent{
 		Type:       SignalEventAuth,
 		FromPeerID: req.FromPeerID,
 		Params:     &req.Params,
 	})
+	s.mu.Unlock()
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -102,11 +105,13 @@ func (s *SignalingServer) handleCandidate(w http.ResponseWriter, r *http.Request
 		req.Candidate.RelatedPort,
 		r.RemoteAddr,
 	)
+	s.mu.Lock()
 	s.enqueue(req.ToPeerID, SignalEvent{
 		Type:       SignalEventCandidate,
 		FromPeerID: req.FromPeerID,
 		Candidate:  &req.Candidate,
 	})
+	s.mu.Unlock()
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -144,6 +149,8 @@ func signalEventSummary(events []SignalEvent) string {
 	summaries := make([]string, 0, len(events))
 	for _, ev := range events {
 		switch ev.Type {
+		case SignalEventPeerRegistered:
+			summaries = append(summaries, "peer_registered from="+ev.FromPeerID)
 		case SignalEventAuth:
 			ufrag := ""
 			if ev.Params != nil {
@@ -192,23 +199,39 @@ func (s *SignalingServer) poll(ctx context.Context, peerID string) ([]SignalEven
 	}
 }
 
+// enqueue requires s.mu to be held.
 func (s *SignalingServer) enqueue(peerID string, ev SignalEvent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	box := s.ensureMailboxLocked(peerID)
 	box.queue = append(box.queue, ev)
 	close(box.waitCh)
 	box.waitCh = make(chan struct{})
 }
 
-func (s *SignalingServer) registerPeer(peerID string) {
+func (s *SignalingServer) registerPeer(peerID, remotePeerID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if box := s.peers[peerID]; box != nil {
 		close(box.waitCh)
 	}
-	s.peers[peerID] = &signalMailbox{waitCh: make(chan struct{})}
+	s.peers[peerID] = &signalMailbox{
+		remotePeerID: remotePeerID,
+		waitCh:       make(chan struct{}),
+	}
+
+	remoteBox := s.peers[remotePeerID]
+	if remoteBox == nil || remoteBox.remotePeerID != peerID {
+		return
+	}
+
+	log.Printf("signal peer_registered peer=%s remote_peer=%s", peerID, remotePeerID)
+	s.enqueue(peerID, SignalEvent{
+		Type:       SignalEventPeerRegistered,
+		FromPeerID: remotePeerID,
+	})
+	s.enqueue(remotePeerID, SignalEvent{
+		Type:       SignalEventPeerRegistered,
+		FromPeerID: peerID,
+	})
 }
 
 func (s *SignalingServer) ensureMailboxLocked(peerID string) *signalMailbox {
