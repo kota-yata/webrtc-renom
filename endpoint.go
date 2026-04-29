@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/pion/ice/v4"
+	"github.com/pion/logging"
 	"github.com/pion/stun/v3"
 	"github.com/pion/webrtc/v4"
 )
@@ -34,7 +35,8 @@ type endpointConfig struct {
 }
 
 func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
-	loggerFactory := newInterfaceAwareLoggerFactory()
+	loggerFactory := logging.NewDefaultLoggerFactory()
+	loggerFactory.DefaultLogLevel = logging.LogLevelInfo
 
 	agentOpts := []ice.AgentOption{
 		ice.WithNetworkTypes([]ice.NetworkType{ice.NetworkTypeUDP4}),

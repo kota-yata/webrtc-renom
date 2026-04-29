@@ -17,11 +17,13 @@ func TestSignalingServerRoutesByPeerID(t *testing.T) {
 		UsernameFragment: "ufrag-a",
 		Password:         "pwd-a",
 	}
-	server.enqueueForTest("peer-b", SignalEvent{
+	server.mu.Lock()
+	server.enqueue("peer-b", SignalEvent{
 		Type:       SignalEventAuth,
 		FromPeerID: "peer-a",
 		Params:     &params,
 	})
+	server.mu.Unlock()
 
 	events, err := server.poll(context.Background(), "peer-b", sessionID)
 	if err != nil {
@@ -50,11 +52,13 @@ func TestSignalingServerRegisterClearsQueuedEvents(t *testing.T) {
 		Password:         "stale-pwd",
 	}
 	server.registerPeer("peer-b", "peer-a")
-	server.enqueueForTest("peer-b", SignalEvent{
+	server.mu.Lock()
+	server.enqueue("peer-b", SignalEvent{
 		Type:       SignalEventAuth,
 		FromPeerID: "peer-a",
 		Params:     &params,
 	})
+	server.mu.Unlock()
 
 	sessionID := server.registerPeer("peer-b", "peer-a")
 
@@ -64,12 +68,6 @@ func TestSignalingServerRegisterClearsQueuedEvents(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected poll timeout after register cleared queue, got events=%v err=%v", events, err)
 	}
-}
-
-func (s *SignalingServer) enqueueForTest(peerID string, ev SignalEvent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.enqueue(peerID, ev)
 }
 
 func TestSignalingServerPeerRegisteredRequiresMutualRegister(t *testing.T) {

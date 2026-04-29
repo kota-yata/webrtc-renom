@@ -4,11 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -57,7 +54,6 @@ func (s *SignalingServer) handleRegister(w http.ResponseWriter, r *http.Request)
 	}
 
 	sessionID := s.registerPeer(req.PeerID, req.RemotePeerID)
-	log.Printf("signal register peer=%s remote_peer=%s session=%s remote=%s", req.PeerID, req.RemotePeerID, sessionID, r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(RegisterResponse{SessionID: sessionID})
@@ -77,12 +73,12 @@ func (s *SignalingServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	if !s.sessionMatchesLocked(req.FromPeerID, req.SessionID) {
+	fromBox := s.peers[req.FromPeerID]
+	if fromBox == nil || fromBox.sessionID != req.SessionID {
 		s.mu.Unlock()
 		http.Error(w, "invalid signaling session", http.StatusConflict)
 		return
 	}
-	log.Printf("signal auth from=%s to=%s session=%s ufrag=%s remote=%s", req.FromPeerID, req.ToPeerID, req.SessionID, req.Params.UsernameFragment, r.RemoteAddr)
 	enqueued := s.enqueue(req.ToPeerID, SignalEvent{
 		Type:       SignalEventAuth,
 		FromPeerID: req.FromPeerID,
@@ -110,23 +106,12 @@ func (s *SignalingServer) handleCandidate(w http.ResponseWriter, r *http.Request
 	}
 
 	s.mu.Lock()
-	if !s.sessionMatchesLocked(req.FromPeerID, req.SessionID) {
+	fromBox := s.peers[req.FromPeerID]
+	if fromBox == nil || fromBox.sessionID != req.SessionID {
 		s.mu.Unlock()
 		http.Error(w, "invalid signaling session", http.StatusConflict)
 		return
 	}
-	log.Printf("signal candidate from=%s to=%s session=%s type=%s protocol=%s addr=%s port=%d related=%s:%d remote=%s",
-		req.FromPeerID,
-		req.ToPeerID,
-		req.SessionID,
-		req.Candidate.Typ,
-		req.Candidate.Protocol,
-		req.Candidate.Address,
-		req.Candidate.Port,
-		req.Candidate.RelatedAddress,
-		req.Candidate.RelatedPort,
-		r.RemoteAddr,
-	)
 	enqueued := s.enqueue(req.ToPeerID, SignalEvent{
 		Type:       SignalEventCandidate,
 		FromPeerID: req.FromPeerID,
@@ -168,43 +153,8 @@ func (s *SignalingServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(events) > 0 {
-		log.Printf("signal events peer=%s session=%s count=%d remote=%s summary=%s", peerID, sessionID, len(events), r.RemoteAddr, signalEventSummary(events))
-	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(PollResponse{Events: events})
-}
-
-func signalEventSummary(events []SignalEvent) string {
-	summaries := make([]string, 0, len(events))
-	for _, ev := range events {
-		switch ev.Type {
-		case SignalEventPeerRegistered:
-			summaries = append(summaries, "peer_registered from="+ev.FromPeerID)
-		case SignalEventAuth:
-			ufrag := ""
-			if ev.Params != nil {
-				ufrag = ev.Params.UsernameFragment
-			}
-			summaries = append(summaries, "auth from="+ev.FromPeerID+" ufrag="+ufrag)
-		case SignalEventCandidate:
-			if ev.Candidate == nil {
-				summaries = append(summaries, "candidate from="+ev.FromPeerID)
-				continue
-			}
-			summaries = append(summaries, fmt.Sprintf("candidate from=%s type=%s protocol=%s addr=%s:%d",
-				ev.FromPeerID,
-				ev.Candidate.Typ,
-				ev.Candidate.Protocol,
-				ev.Candidate.Address,
-				ev.Candidate.Port,
-			))
-		default:
-			summaries = append(summaries, string(ev.Type)+" from="+ev.FromPeerID)
-		}
-	}
-
-	return strings.Join(summaries, ", ")
 }
 
 func (s *SignalingServer) poll(ctx context.Context, peerID, sessionID string) ([]SignalEvent, error) {
@@ -223,15 +173,12 @@ func (s *SignalingServer) poll(ctx context.Context, peerID, sessionID string) ([
 		}
 
 		waitCh := box.waitCh
-		log.Printf("signal events wait peer=%s session=%s remote_peer=%s", peerID, sessionID, box.remotePeerID)
 		s.mu.Unlock()
 
 		select {
 		case <-ctx.Done():
-			log.Printf("signal events wait timeout peer=%s session=%s", peerID, sessionID)
 			return nil, ctx.Err()
 		case <-waitCh:
-			log.Printf("signal events wait wake peer=%s session=%s", peerID, sessionID)
 		}
 	}
 }
@@ -255,7 +202,7 @@ func (s *SignalingServer) registerPeer(peerID, remotePeerID string) string {
 		close(box.waitCh)
 	}
 	s.nextSession++
-	sessionID := fmt.Sprintf("%s-%d", peerID, s.nextSession)
+	sessionID := peerID + "-" + strconv.FormatUint(s.nextSession, 10)
 	s.peers[peerID] = &signalMailbox{
 		sessionID:    sessionID,
 		remotePeerID: remotePeerID,
@@ -263,16 +210,10 @@ func (s *SignalingServer) registerPeer(peerID, remotePeerID string) string {
 	}
 
 	remoteBox := s.peers[remotePeerID]
-	if remoteBox == nil {
-		log.Printf("signal peer_registered pending peer=%s remote_peer=%s reason=remote_not_registered", peerID, remotePeerID)
-		return sessionID
-	}
-	if remoteBox.remotePeerID != peerID {
-		log.Printf("signal peer_registered pending peer=%s remote_peer=%s reason=remote_waiting_for_%s", peerID, remotePeerID, remoteBox.remotePeerID)
+	if remoteBox == nil || remoteBox.remotePeerID != peerID {
 		return sessionID
 	}
 
-	log.Printf("signal peer_registered peer=%s session=%s remote_peer=%s remote_session=%s", peerID, sessionID, remotePeerID, remoteBox.sessionID)
 	s.enqueue(peerID, SignalEvent{
 		Type:       SignalEventPeerRegistered,
 		FromPeerID: remotePeerID,
@@ -282,9 +223,4 @@ func (s *SignalingServer) registerPeer(peerID, remotePeerID string) string {
 		FromPeerID: peerID,
 	})
 	return sessionID
-}
-
-func (s *SignalingServer) sessionMatchesLocked(peerID, sessionID string) bool {
-	box := s.peers[peerID]
-	return box != nil && box.sessionID == sessionID
 }

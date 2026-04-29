@@ -82,7 +82,6 @@ func (p *Peer) Run(ctx context.Context) error {
 		}
 	}()
 
-	log.Printf("registering with signaling server peer=%s remote_peer=%s server=%s", p.cfg.PeerID, p.cfg.RemotePeerID, p.cfg.ServerURL)
 	registerResp, err := p.client.Register(ctx, RegisterRequest{
 		PeerID:       p.cfg.PeerID,
 		RemotePeerID: p.cfg.RemotePeerID,
@@ -90,16 +89,13 @@ func (p *Peer) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("register with signaling server: %w", err)
 	}
-	log.Printf("registered with signaling server peer=%s remote_peer=%s session=%s", p.cfg.PeerID, p.cfg.RemotePeerID, registerResp.SessionID)
 
 	peerRegisteredCh := make(chan struct{}, 1)
 	remoteParamsCh := make(chan webrtc.ICEParameters, 1)
 	go p.pollSignalEvents(ctx, registerResp.SessionID, peerRegisteredCh, remoteParamsCh)
 
-	log.Printf("waiting for remote peer registration peer=%s remote_peer=%s", p.cfg.PeerID, p.cfg.RemotePeerID)
 	select {
 	case <-peerRegisteredCh:
-		log.Printf("remote peer registered; starting ICE exchange peer=%s remote_peer=%s", p.cfg.PeerID, p.cfg.RemotePeerID)
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -195,7 +191,6 @@ func (p *Peer) startAudioStreaming() {
 }
 
 func (p *Peer) pollSignalEvents(ctx context.Context, sessionID string, peerRegisteredCh chan<- struct{}, remoteParamsCh chan<- webrtc.ICEParameters) {
-	log.Printf("starting signaling event poll peer=%s session=%s", p.cfg.PeerID, sessionID)
 	for {
 		events, err := p.client.PollEvents(ctx, p.cfg.PeerID, sessionID, p.cfg.PollTimeout)
 		if err != nil {
@@ -208,7 +203,6 @@ func (p *Peer) pollSignalEvents(ctx context.Context, sessionID string, peerRegis
 			continue
 		}
 		if len(events) == 0 {
-			log.Printf("signaling event poll timeout peer=%s", p.cfg.PeerID)
 			continue
 		}
 
@@ -216,7 +210,6 @@ func (p *Peer) pollSignalEvents(ctx context.Context, sessionID string, peerRegis
 			switch ev.Type {
 			case SignalEventPeerRegistered:
 				if ev.FromPeerID != p.cfg.RemotePeerID {
-					log.Printf("ignore peer_registered from unexpected peer=%s", ev.FromPeerID)
 					continue
 				}
 				select {
