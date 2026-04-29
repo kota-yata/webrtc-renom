@@ -11,7 +11,7 @@ TLS_KEY := $(CURDIR)/cert/server.key
 TLS_CA_CERT := $(TLS_CERT)
 CERT_CN ?= 203.178.143.72
 CERT_SAN ?= IP:203.178.143.72,IP:127.0.0.1,DNS:localhost
-ICE_SERVERS := turn:203.178.143.72:3478?transport=udp
+ICE_SERVERS := turn:203.178.143.72:3478?transport=udp,stun:stun.l.google.com:19302
 ICE_USERNAME := cmp9
 ICE_CREDENTIAL := dc+zjBYP+nf+bC6gXvliLKNgzu8lR3XO
 POLL_TIMEOUT ?= 25s
