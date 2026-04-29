@@ -213,11 +213,10 @@ func (e *manualEndpoint) ForceHandoverToCellular() error {
 
 	// Handover policy:
 	// - The controlling side performs manual renomination only.
-	// - The local candidate must be a relay candidate whose base/related
-	//   address belongs to a cellular-like interface.
+	// - The local candidate must belong to a cellular-like interface.
 	// - The remote candidate must also be a relay candidate.
-	// - A succeeded or already nominated relay pair is preferred, but any
-	//   matching relay/relay pair is used immediately so Wi-Fi loss falls back
+	// - A succeeded or already nominated pair is preferred, but any
+	//   matching cellular/relay pair is used immediately so Wi-Fi loss falls back
 	//   to the relay path without waiting for the "best" pair selection.
 	localCandidates, err := e.agent.GetLocalCandidates()
 	if err != nil {
@@ -238,8 +237,8 @@ func (e *manualEndpoint) ForceHandoverToCellular() error {
 
 	stats := e.agent.GetCandidatePairsStats()
 	var (
-		relayLocal  ice.Candidate
-		relayRemote ice.Candidate
+		handoverLocal  ice.Candidate
+		handoverRemote ice.Candidate
 	)
 
 	for _, stat := range stats {
@@ -250,29 +249,29 @@ func (e *manualEndpoint) ForceHandoverToCellular() error {
 		}
 
 		localIface, localIfaceOK := candidateInterfaceName(local)
-		localIsCellularRelay := local.Type() == ice.CandidateTypeRelay && localIfaceOK && isCellularLikeInterface(localIface)
+		localIsCellular := localIfaceOK && isCellularLikeInterface(localIface)
 		remoteIsRelay := remote.Type() == ice.CandidateTypeRelay
 
-		log.Printf("candidate pair local=%s type=%s iface=%s remote=%s type=%s state=%s nominated=%t cellular_relay=%t remote_relay=%t",
-			local.Address(), local.Type(), localIface, remote.Address(), remote.Type(), stat.State, stat.Nominated, localIsCellularRelay, remoteIsRelay)
+		log.Printf("candidate pair local=%s type=%s iface=%s remote=%s type=%s state=%s nominated=%t cellular=%t remote_relay=%t",
+			local.Address(), local.Type(), localIface, remote.Address(), remote.Type(), stat.State, stat.Nominated, localIsCellular, remoteIsRelay)
 
-		if !localIsCellularRelay || !remoteIsRelay {
+		if !localIsCellular || !remoteIsRelay {
 			continue
 		}
 
-		relayLocal = local
-		relayRemote = remote
+		handoverLocal = local
+		handoverRemote = remote
 		if stat.State == ice.CandidatePairStateSucceeded || stat.Nominated {
 			break
 		}
 	}
 
-	if relayLocal == nil || relayRemote == nil {
-		return errors.New("no cellular relay to remote relay candidate pair found")
+	if handoverLocal == nil || handoverRemote == nil {
+		return errors.New("no cellular local to remote relay candidate pair found")
 	}
 
-	log.Printf("forcing relay handover via local=%s remote=%s", relayLocal, relayRemote)
-	return e.agent.RenominateCandidate(relayLocal, relayRemote)
+	log.Printf("forcing relay handover via local=%s remote=%s", handoverLocal, handoverRemote)
+	return e.agent.RenominateCandidate(handoverLocal, handoverRemote)
 }
 
 func candidateInterfaceName(c ice.Candidate) (string, bool) {
