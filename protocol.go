@@ -7,13 +7,19 @@ type RegisterRequest struct {
 	RemotePeerID string `json:"remote_peer_id"`
 }
 
+type RegisterResponse struct {
+	SessionID string `json:"session_id"`
+}
+
 type AuthMessage struct {
+	SessionID  string               `json:"session_id"`
 	FromPeerID string               `json:"from_peer_id"`
 	ToPeerID   string               `json:"to_peer_id"`
 	Params     webrtc.ICEParameters `json:"params"`
 }
 
 type CandidateMessage struct {
+	SessionID  string              `json:"session_id"`
 	FromPeerID string              `json:"from_peer_id"`
 	ToPeerID   string              `json:"to_peer_id"`
 	Candidate  webrtc.ICECandidate `json:"candidate"`

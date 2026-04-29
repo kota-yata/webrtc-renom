@@ -57,8 +57,15 @@ func NewSignalingClientWithCACert(baseURL, caCertPath string) (*SignalingClient,
 	return client, nil
 }
 
-func (c *SignalingClient) Register(ctx context.Context, req RegisterRequest) error {
-	return c.post(ctx, "/register", req, nil)
+func (c *SignalingClient) Register(ctx context.Context, req RegisterRequest) (RegisterResponse, error) {
+	var out RegisterResponse
+	if err := c.post(ctx, "/register", req, &out); err != nil {
+		return RegisterResponse{}, fmt.Errorf("register response decode failed; signaling server may be missing session_id support: %w", err)
+	}
+	if out.SessionID == "" {
+		return RegisterResponse{}, fmt.Errorf("register response missing session_id; restart signaling server with the current build")
+	}
+	return out, nil
 }
 
 func (c *SignalingClient) SendAuth(ctx context.Context, req AuthMessage) error {
@@ -69,9 +76,10 @@ func (c *SignalingClient) SendCandidate(ctx context.Context, req CandidateMessag
 	return c.post(ctx, "/candidate", req, nil)
 }
 
-func (c *SignalingClient) PollEvents(ctx context.Context, peerID string, timeout time.Duration) ([]SignalEvent, error) {
+func (c *SignalingClient) PollEvents(ctx context.Context, peerID, sessionID string, timeout time.Duration) ([]SignalEvent, error) {
 	q := url.Values{}
 	q.Set("peer_id", peerID)
+	q.Set("session_id", sessionID)
 	q.Set("timeout_ms", strconv.FormatInt(timeout.Milliseconds(), 10))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/events?"+q.Encode(), nil)
