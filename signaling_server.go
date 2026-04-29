@@ -11,11 +11,7 @@ import (
 )
 
 type SignalingServer struct {
-	mu       sync.Mutex
-	sessions map[string]*signalSession
-}
-
-type signalSession struct {
+	mu    sync.Mutex
 	peers map[string]*signalMailbox
 }
 
@@ -26,7 +22,7 @@ type signalMailbox struct {
 
 func NewSignalingServer() *SignalingServer {
 	return &SignalingServer{
-		sessions: map[string]*signalSession{},
+		peers: map[string]*signalMailbox{},
 	}
 }
 
@@ -47,12 +43,12 @@ func (s *SignalingServer) handleRegister(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.SessionID == "" || req.PeerID == "" {
-		http.Error(w, "session_id and peer_id are required", http.StatusBadRequest)
+	if req.PeerID == "" {
+		http.Error(w, "peer_id is required", http.StatusBadRequest)
 		return
 	}
 
-	s.ensureMailbox(req.SessionID, req.PeerID)
+	s.registerPeer(req.PeerID)
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -64,12 +60,12 @@ func (s *SignalingServer) handleAuth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.SessionID == "" || req.FromPeerID == "" || req.ToPeerID == "" {
-		http.Error(w, "session_id, from_peer_id, to_peer_id are required", http.StatusBadRequest)
+	if req.FromPeerID == "" || req.ToPeerID == "" {
+		http.Error(w, "from_peer_id and to_peer_id are required", http.StatusBadRequest)
 		return
 	}
 
-	s.enqueue(req.SessionID, req.ToPeerID, SignalEvent{
+	s.enqueue(req.ToPeerID, SignalEvent{
 		Type:       SignalEventAuth,
 		FromPeerID: req.FromPeerID,
 		Params:     &req.Params,
@@ -85,12 +81,12 @@ func (s *SignalingServer) handleCandidate(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.SessionID == "" || req.FromPeerID == "" || req.ToPeerID == "" {
-		http.Error(w, "session_id, from_peer_id, to_peer_id are required", http.StatusBadRequest)
+	if req.FromPeerID == "" || req.ToPeerID == "" {
+		http.Error(w, "from_peer_id and to_peer_id are required", http.StatusBadRequest)
 		return
 	}
 
-	s.enqueue(req.SessionID, req.ToPeerID, SignalEvent{
+	s.enqueue(req.ToPeerID, SignalEvent{
 		Type:       SignalEventCandidate,
 		FromPeerID: req.FromPeerID,
 		Candidate:  &req.Candidate,
@@ -99,10 +95,9 @@ func (s *SignalingServer) handleCandidate(w http.ResponseWriter, r *http.Request
 }
 
 func (s *SignalingServer) handleEvents(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.URL.Query().Get("session_id")
 	peerID := r.URL.Query().Get("peer_id")
-	if sessionID == "" || peerID == "" {
-		http.Error(w, "session_id and peer_id are required", http.StatusBadRequest)
+	if peerID == "" {
+		http.Error(w, "peer_id is required", http.StatusBadRequest)
 		return
 	}
 
@@ -116,7 +111,7 @@ func (s *SignalingServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	events, err := s.poll(ctx, sessionID, peerID)
+	events, err := s.poll(ctx, peerID)
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -126,10 +121,10 @@ func (s *SignalingServer) handleEvents(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(PollResponse{Events: events})
 }
 
-func (s *SignalingServer) poll(ctx context.Context, sessionID, peerID string) ([]SignalEvent, error) {
+func (s *SignalingServer) poll(ctx context.Context, peerID string) ([]SignalEvent, error) {
 	for {
 		s.mu.Lock()
-		box := s.ensureMailboxLocked(sessionID, peerID)
+		box := s.ensureMailboxLocked(peerID)
 		if len(box.queue) > 0 {
 			events := append([]SignalEvent(nil), box.queue...)
 			box.queue = nil
@@ -148,33 +143,30 @@ func (s *SignalingServer) poll(ctx context.Context, sessionID, peerID string) ([
 	}
 }
 
-func (s *SignalingServer) enqueue(sessionID, peerID string, ev SignalEvent) {
+func (s *SignalingServer) enqueue(peerID string, ev SignalEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	box := s.ensureMailboxLocked(sessionID, peerID)
+	box := s.ensureMailboxLocked(peerID)
 	box.queue = append(box.queue, ev)
 	close(box.waitCh)
 	box.waitCh = make(chan struct{})
 }
 
-func (s *SignalingServer) ensureMailbox(sessionID, peerID string) {
+func (s *SignalingServer) registerPeer(peerID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ensureMailboxLocked(sessionID, peerID)
+	if box := s.peers[peerID]; box != nil {
+		close(box.waitCh)
+	}
+	s.peers[peerID] = &signalMailbox{waitCh: make(chan struct{})}
 }
 
-func (s *SignalingServer) ensureMailboxLocked(sessionID, peerID string) *signalMailbox {
-	session := s.sessions[sessionID]
-	if session == nil {
-		session = &signalSession{peers: map[string]*signalMailbox{}}
-		s.sessions[sessionID] = session
-	}
-
-	box := session.peers[peerID]
+func (s *SignalingServer) ensureMailboxLocked(peerID string) *signalMailbox {
+	box := s.peers[peerID]
 	if box == nil {
 		box = &signalMailbox{waitCh: make(chan struct{})}
-		session.peers[peerID] = box
+		s.peers[peerID] = box
 	}
 
 	return box

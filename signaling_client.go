@@ -69,9 +69,8 @@ func (c *SignalingClient) SendCandidate(ctx context.Context, req CandidateMessag
 	return c.post(ctx, "/candidate", req, nil)
 }
 
-func (c *SignalingClient) PollEvents(ctx context.Context, sessionID, peerID string, timeout time.Duration) ([]SignalEvent, error) {
+func (c *SignalingClient) PollEvents(ctx context.Context, peerID string, timeout time.Duration) ([]SignalEvent, error) {
 	q := url.Values{}
-	q.Set("session_id", sessionID)
 	q.Set("peer_id", peerID)
 	q.Set("timeout_ms", strconv.FormatInt(timeout.Milliseconds(), 10))
 

@@ -12,7 +12,6 @@ import (
 
 type PeerConfig struct {
 	Controlling  bool
-	SessionID    string
 	PeerID       string
 	RemotePeerID string
 	ServerURL    string
@@ -28,8 +27,8 @@ type Peer struct {
 }
 
 func NewPeer(cfg PeerConfig) (*Peer, error) {
-	if cfg.SessionID == "" || cfg.PeerID == "" || cfg.RemotePeerID == "" || cfg.ServerURL == "" {
-		return nil, fmt.Errorf("session_id, peer_id, remote_peer_id, and server_url are required")
+	if cfg.PeerID == "" || cfg.RemotePeerID == "" || cfg.ServerURL == "" {
+		return nil, fmt.Errorf("peer_id, remote_peer_id, and server_url are required")
 	}
 	if cfg.PollTimeout <= 0 {
 		cfg.PollTimeout = 25 * time.Second
@@ -78,8 +77,7 @@ func NewPeer(cfg PeerConfig) (*Peer, error) {
 
 func (p *Peer) Run(ctx context.Context) error {
 	if err := p.client.Register(ctx, RegisterRequest{
-		SessionID: p.cfg.SessionID,
-		PeerID:    p.cfg.PeerID,
+		PeerID: p.cfg.PeerID,
 	}); err != nil {
 		return fmt.Errorf("register with signaling server: %w", err)
 	}
@@ -89,7 +87,6 @@ func (p *Peer) Run(ctx context.Context) error {
 
 	p.endpoint.SetLocalCandidatePublisher(func(c webrtc.ICECandidate) error {
 		return p.client.SendCandidate(ctx, CandidateMessage{
-			SessionID:  p.cfg.SessionID,
 			FromPeerID: p.cfg.PeerID,
 			ToPeerID:   p.cfg.RemotePeerID,
 			Candidate:  c,
@@ -106,7 +103,6 @@ func (p *Peer) Run(ctx context.Context) error {
 	}
 
 	if err := p.client.SendAuth(ctx, AuthMessage{
-		SessionID:  p.cfg.SessionID,
 		FromPeerID: p.cfg.PeerID,
 		ToPeerID:   p.cfg.RemotePeerID,
 		Params:     localParams,
@@ -145,7 +141,7 @@ func (p *Peer) Run(ctx context.Context) error {
 		}()
 	}
 
-	log.Printf("peer is running; session=%s peer=%s controlling=%t", p.cfg.SessionID, p.cfg.PeerID, p.cfg.Controlling)
+	log.Printf("peer is running; peer=%s controlling=%t", p.cfg.PeerID, p.cfg.Controlling)
 	<-ctx.Done()
 	return ctx.Err()
 }
@@ -179,7 +175,7 @@ func (p *Peer) startAudioStreaming() {
 
 func (p *Peer) pollSignalEvents(ctx context.Context, remoteParamsCh chan<- webrtc.ICEParameters) {
 	for {
-		events, err := p.client.PollEvents(ctx, p.cfg.SessionID, p.cfg.PeerID, p.cfg.PollTimeout)
+		events, err := p.client.PollEvents(ctx, p.cfg.PeerID, p.cfg.PollTimeout)
 		if err != nil {
 			if ctx.Err() != nil {
 				return

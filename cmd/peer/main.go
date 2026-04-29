@@ -18,7 +18,6 @@ func main() {
 		isControlling = flag.Bool("controlling", false, "run as the controlling side")
 		serverURL     = flag.String("server-url", "https://127.0.0.1:8080", "signaling server base URL")
 		tlsCACert     = flag.String("tls-ca-cert", "", "TLS CA certificate file used to verify the signaling server")
-		sessionID     = flag.String("session-id", "demo", "signaling session identifier")
 		peerID        = flag.String("peer-id", "peer-a", "local peer identifier")
 		remotePeerID  = flag.String("remote-peer-id", "peer-b", "remote peer identifier")
 		iceServers    = flag.String("ice-servers", "", "optional comma separated list of STUN/TURN server URLs")
@@ -33,7 +32,6 @@ func main() {
 
 	peer, err := renom.NewPeer(renom.PeerConfig{
 		Controlling:  *isControlling,
-		SessionID:    *sessionID,
 		PeerID:       *peerID,
 		RemotePeerID: *remotePeerID,
 		ServerURL:    *serverURL,

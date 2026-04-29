@@ -11,7 +11,6 @@ TLS_KEY := $(CURDIR)/cert/server.key
 TLS_CA_CERT := $(TLS_CERT)
 CERT_CN ?= 203.178.143.72
 CERT_SAN ?= IP:203.178.143.72,IP:127.0.0.1,DNS:localhost
-SESSION_ID ?= demo
 ICE_SERVERS := turn:203.178.143.72:3478?transport=udp
 ICE_USERNAME := cmp9
 ICE_CREDENTIAL := dc+zjBYP+nf+bC6gXvliLKNgzu8lR3XO
@@ -40,7 +39,6 @@ peer: check-tls-ca-cert
 	go run $(GO_LDFLAGS_ARG) ./cmd/peer \
 		--server-url $(SERVER_URL) \
 		--tls-ca-cert $(TLS_CA_CERT) \
-		--session-id $(SESSION_ID) \
 		--peer-id $(PEER_ID) \
 		--remote-peer-id $(REMOTE_PEER_ID) \
 		--ice-servers '$(ICE_SERVERS)' \
