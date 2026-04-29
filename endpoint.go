@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"reflect"
 	"sync"
 	"unsafe"
@@ -38,7 +39,9 @@ func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 	loggerFactory.DefaultLogLevel = logging.LogLevelInfo
 
 	agentOpts := []ice.AgentOption{
-		ice.WithNetworkTypes([]ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6}),
+		ice.WithNetworkTypes([]ice.NetworkType{ice.NetworkTypeUDP4}),
+		ice.WithIPFilter(isIPv4),
+		ice.WithRemoteIPFilter(isIPv4),
 		ice.WithLoggerFactory(loggerFactory),
 	}
 	if cfg.Controlling {
@@ -129,6 +132,16 @@ func (e *manualEndpoint) SetLocalCandidatePublisher(fn func(webrtc.ICECandidate)
 	e.publishLocalCandidate = fn
 }
 
+func (e *manualEndpoint) Close() error {
+	if e.transport != nil {
+		return e.transport.GracefulStop()
+	}
+	if e.agent != nil {
+		return e.agent.GracefulClose()
+	}
+	return nil
+}
+
 func (e *manualEndpoint) StartGathering() error {
 	return e.gatherer.Gather()
 }
@@ -168,6 +181,10 @@ func (e *manualEndpoint) AddRemoteCandidate(c webrtc.ICECandidate) error {
 	if err != nil {
 		return fmt.Errorf("convert remote candidate: %w", err)
 	}
+	if !isIPv4(net.ParseIP(remote.Address())) {
+		log.Printf("skip non-IPv4 remote candidate addr=%s type=%s", remote.Address(), remote.Type())
+		return nil
+	}
 
 	e.remoteMu.Lock()
 	e.remoteCandidates[remote.ID()] = remote
@@ -178,6 +195,10 @@ func (e *manualEndpoint) AddRemoteCandidate(c webrtc.ICECandidate) error {
 	}
 
 	return nil
+}
+
+func isIPv4(ip net.IP) bool {
+	return ip != nil && ip.To4() != nil
 }
 
 func (e *manualEndpoint) ForceHandoverToCellular() error {

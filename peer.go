@@ -76,6 +76,12 @@ func NewPeer(cfg PeerConfig) (*Peer, error) {
 }
 
 func (p *Peer) Run(ctx context.Context) error {
+	defer func() {
+		if err := p.endpoint.Close(); err != nil {
+			log.Printf("close ICE endpoint failed: %v", err)
+		}
+	}()
+
 	if err := p.client.Register(ctx, RegisterRequest{
 		PeerID: p.cfg.PeerID,
 	}); err != nil {
