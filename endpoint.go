@@ -233,36 +233,28 @@ func (e *manualEndpoint) StartCellularRelayHandover(ctx context.Context) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	var fallbackLocal, fallbackRemote ice.Candidate
 	for {
-		local, remote, ready, err := e.findCellularRelayPair()
+		local, remote, err := e.findCellularRelayPair()
 		if err != nil {
 			return err
 		}
 		if local != nil && remote != nil {
-			fallbackLocal, fallbackRemote = local, remote
-			if ready {
-				log.Printf("forcing relay handover via local=%s remote=%s", local, remote)
-				return e.agent.RenominateCandidate(local, remote)
-			}
+			log.Printf("forcing relay handover via local=%s remote=%s", local, remote)
+			return e.agent.RenominateCandidate(local, remote)
 		}
 
 		select {
 		case <-waitCtx.Done():
-			if fallbackLocal != nil && fallbackRemote != nil {
-				log.Printf("forcing relay handover via local=%s remote=%s", fallbackLocal, fallbackRemote)
-				return e.agent.RenominateCandidate(fallbackLocal, fallbackRemote)
-			}
 			return errors.New("no cellular relay to remote relay candidate pair found")
 		case <-ticker.C:
 		}
 	}
 }
 
-func (e *manualEndpoint) findCellularRelayPair() (ice.Candidate, ice.Candidate, bool, error) {
+func (e *manualEndpoint) findCellularRelayPair() (ice.Candidate, ice.Candidate, error) {
 	localCandidates, err := e.agent.GetLocalCandidates()
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("list local candidates: %w", err)
+		return nil, nil, fmt.Errorf("list local candidates: %w", err)
 	}
 
 	locals := make(map[string]ice.Candidate, len(localCandidates))
@@ -281,7 +273,6 @@ func (e *manualEndpoint) findCellularRelayPair() (ice.Candidate, ice.Candidate, 
 	var (
 		handoverLocal  ice.Candidate
 		handoverRemote ice.Candidate
-		ready          bool
 	)
 
 	for _, stat := range stats {
@@ -302,12 +293,11 @@ func (e *manualEndpoint) findCellularRelayPair() (ice.Candidate, ice.Candidate, 
 		handoverLocal = local
 		handoverRemote = remote
 		if stat.State == ice.CandidatePairStateSucceeded || stat.Nominated {
-			ready = true
 			break
 		}
 	}
 
-	return handoverLocal, handoverRemote, ready, nil
+	return handoverLocal, handoverRemote, nil
 }
 
 func candidateInterfaceName(c ice.Candidate) (string, bool) {
