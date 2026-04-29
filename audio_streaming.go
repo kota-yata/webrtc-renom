@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 )
 
 const (
@@ -152,25 +151,13 @@ func NewAudioReceiver(r io.Reader) *AudioReceiver {
 func (ar *AudioReceiver) ReceiveAudio() error {
 	log.Printf("Starting real-time audio playback from stream")
 
-	recordPath, err := newMP3RecordingPath()
-	if err != nil {
-		return err
-	}
-	log.Printf("recording received audio to %s", recordPath)
-
 	args := []string{
 		"fdsrc", "fd=0", "!",
 		"rawaudioparse", "use-sink-caps=false", "sample-rate=44100", "num-channels=2", "format=pcm", "pcm-format=s16le", "!",
-		"tee", "name=t", "!",
-		"queue", "!",
 		"audioconvert", "!",
 		"audioresample", "!",
 		"queue", "max-size-time=50000000", "leaky=downstream", "!",
 		"autoaudiosink", "sync=false",
-		"t.", "!", "queue", "!",
-		"audioconvert", "!",
-		"lamemp3enc", "target=bitrate", "bitrate=128", "!",
-		"filesink", "location=" + recordPath,
 	}
 
 	cmd := exec.Command("gst-launch-1.0", args...)
@@ -227,7 +214,6 @@ func (ar *AudioReceiver) ReceiveAudio() error {
 				log.Printf("GStreamer playback process ended with error: %v", err)
 			}
 			log.Printf("Audio playback completed successfully. Total bytes received: %d", totalBytes)
-			log.Printf("saved MP3 recording to %s", recordPath)
 			return nil
 		default:
 			log.Printf("Dropping unknown audio packet type=%d size=%d", buffer[0], n)
@@ -240,17 +226,7 @@ func (ar *AudioReceiver) ReceiveAudio() error {
 	}
 
 	log.Printf("Audio playback completed successfully. Total bytes received: %d", totalBytes)
-	log.Printf("saved MP3 recording to %s", recordPath)
 	return nil
-}
-
-func newMP3RecordingPath() (string, error) {
-	if err := os.MkdirAll("recordings", 0o755); err != nil {
-		return "", fmt.Errorf("create recordings directory: %w", err)
-	}
-
-	name := "received-" + time.Now().Format("20060102-150405") + ".mp3"
-	return filepath.Join("recordings", name), nil
 }
 
 func logCommandStderr(prefix string, stderr io.Reader) {
