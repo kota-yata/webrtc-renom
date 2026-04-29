@@ -204,6 +204,10 @@ func (p *Peer) pollSignalEvents(ctx context.Context, peerRegisteredCh chan<- str
 			time.Sleep(time.Second)
 			continue
 		}
+		if len(events) == 0 {
+			log.Printf("signaling event poll timeout peer=%s", p.cfg.PeerID)
+			continue
+		}
 
 		for _, ev := range events {
 			switch ev.Type {

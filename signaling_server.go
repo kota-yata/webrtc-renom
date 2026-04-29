@@ -219,7 +219,12 @@ func (s *SignalingServer) registerPeer(peerID, remotePeerID string) {
 	}
 
 	remoteBox := s.peers[remotePeerID]
-	if remoteBox == nil || remoteBox.remotePeerID != peerID {
+	if remoteBox == nil {
+		log.Printf("signal peer_registered pending peer=%s remote_peer=%s reason=remote_not_registered", peerID, remotePeerID)
+		return
+	}
+	if remoteBox.remotePeerID != peerID {
+		log.Printf("signal peer_registered pending peer=%s remote_peer=%s reason=remote_waiting_for_%s", peerID, remotePeerID, remoteBox.remotePeerID)
 		return
 	}
 
