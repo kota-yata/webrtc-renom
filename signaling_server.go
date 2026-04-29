@@ -189,12 +189,15 @@ func (s *SignalingServer) poll(ctx context.Context, peerID string) ([]SignalEven
 		}
 
 		waitCh := box.waitCh
+		log.Printf("signal events wait peer=%s remote_peer=%s", peerID, box.remotePeerID)
 		s.mu.Unlock()
 
 		select {
 		case <-ctx.Done():
+			log.Printf("signal events wait timeout peer=%s", peerID)
 			return nil, ctx.Err()
 		case <-waitCh:
+			log.Printf("signal events wait wake peer=%s", peerID)
 		}
 	}
 }
