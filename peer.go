@@ -151,7 +151,7 @@ func (p *Peer) Run(ctx context.Context) error {
 		go func() {
 			for ev := range events {
 				log.Printf("WiFi disabled or disconnected if=%s removed_ip=%s", ev.IfName, ev.RemovedIP)
-				if err := p.endpoint.ForceHandoverToCellular(); err != nil {
+				if err := p.endpoint.StartCellularRelayHandover(ctx); err != nil {
 					log.Printf("manual handover failed: %v", err)
 				}
 			}

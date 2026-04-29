@@ -8,6 +8,7 @@ import (
 	"net"
 	"reflect"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/pion/ice/v4"
@@ -24,6 +25,9 @@ type manualEndpoint struct {
 	conn      *ice.Conn
 	role      webrtc.ICERole
 
+	handoverMu   sync.Mutex
+	gatherFilter *candidateGatherFilter
+
 	remoteMu              sync.RWMutex
 	remoteCandidates      map[string]ice.Candidate
 	publishLocalCandidate func(webrtc.ICECandidate) error
@@ -38,16 +42,15 @@ func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 	loggerFactory := logging.NewDefaultLoggerFactory()
 	loggerFactory.DefaultLogLevel = logging.LogLevelInfo
 
+	gatherFilter := newCandidateGatherFilter()
 	agentOpts := []ice.AgentOption{
 		ice.WithNetworkTypes([]ice.NetworkType{ice.NetworkTypeUDP4}),
+		ice.WithInterfaceFilter(gatherFilter.Keep),
 		ice.WithIPFilter(isIPv4),
 		ice.WithRemoteIPFilter(isIPv4),
 		ice.WithLoggerFactory(loggerFactory),
-	}
-	if netTransport, err := newDeviceBoundNet(); err != nil {
-		return nil, fmt.Errorf("create device-bound ICE network: %w", err)
-	} else if netTransport != nil {
-		agentOpts = append(agentOpts, ice.WithNet(netTransport))
+		ice.WithContinualGatheringPolicy(ice.GatherContinually),
+		ice.WithNetworkMonitorInterval(250 * time.Millisecond),
 	}
 	agentOpts = append(agentOpts, ice.WithRenomination(ice.DefaultNominationValueGenerator()))
 
@@ -86,6 +89,7 @@ func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 		transport:        transport,
 		agent:            agent,
 		role:             role,
+		gatherFilter:     gatherFilter,
 		remoteCandidates: map[string]ice.Candidate{},
 	}
 
@@ -204,21 +208,61 @@ func isIPv4(ip net.IP) bool {
 	return ip != nil && ip.To4() != nil
 }
 
-func (e *manualEndpoint) ForceHandoverToCellular() error {
+func (e *manualEndpoint) StartCellularRelayHandover(ctx context.Context) error {
 	if e.role != webrtc.ICERoleControlling {
 		return errors.New("manual renomination requires the controlling side")
 	}
 
-	// Handover policy:
-	// - The controlling side performs manual renomination only.
-	// - The local candidate must belong to a cellular-like interface.
-	// - The remote candidate must also be a relay candidate.
-	// - A succeeded or already nominated pair is preferred, but any
-	//   matching cellular/relay pair is used immediately so Wi-Fi loss falls back
-	//   to the relay path without waiting for the "best" pair selection.
+	cell, err := firstActiveCellularAddress()
+	if err != nil {
+		return err
+	}
+
+	e.handoverMu.Lock()
+	defer e.handoverMu.Unlock()
+
+	log.Printf("starting cellular relay handover if=%s ip=%s", cell.Name, cell.IP)
+	e.gatherFilter.UseCellularOnly()
+	if err := prepareAgentForCellularRelayGathering(e.agent); err != nil {
+		return err
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	var fallbackLocal, fallbackRemote ice.Candidate
+	for {
+		local, remote, ready, err := e.findCellularRelayPair()
+		if err != nil {
+			return err
+		}
+		if local != nil && remote != nil {
+			fallbackLocal, fallbackRemote = local, remote
+			if ready {
+				log.Printf("forcing relay handover via local=%s remote=%s", local, remote)
+				return e.agent.RenominateCandidate(local, remote)
+			}
+		}
+
+		select {
+		case <-waitCtx.Done():
+			if fallbackLocal != nil && fallbackRemote != nil {
+				log.Printf("forcing relay handover via local=%s remote=%s", fallbackLocal, fallbackRemote)
+				return e.agent.RenominateCandidate(fallbackLocal, fallbackRemote)
+			}
+			return errors.New("no cellular relay to remote relay candidate pair found")
+		case <-ticker.C:
+		}
+	}
+}
+
+func (e *manualEndpoint) findCellularRelayPair() (ice.Candidate, ice.Candidate, bool, error) {
 	localCandidates, err := e.agent.GetLocalCandidates()
 	if err != nil {
-		return fmt.Errorf("list local candidates: %w", err)
+		return nil, nil, false, fmt.Errorf("list local candidates: %w", err)
 	}
 
 	locals := make(map[string]ice.Candidate, len(localCandidates))
@@ -237,6 +281,7 @@ func (e *manualEndpoint) ForceHandoverToCellular() error {
 	var (
 		handoverLocal  ice.Candidate
 		handoverRemote ice.Candidate
+		ready          bool
 	)
 
 	for _, stat := range stats {
@@ -247,29 +292,22 @@ func (e *manualEndpoint) ForceHandoverToCellular() error {
 		}
 
 		localIface, localIfaceOK := candidateInterfaceName(local)
-		localIsCellular := localIfaceOK && isCellularLikeInterface(localIface)
+		localIsCellularRelay := local.Type() == ice.CandidateTypeRelay && localIfaceOK && isCellularLikeInterface(localIface)
 		remoteIsRelay := remote.Type() == ice.CandidateTypeRelay
 
-		log.Printf("candidate pair local=%s type=%s iface=%s remote=%s type=%s state=%s nominated=%t cellular=%t remote_relay=%t",
-			local.Address(), local.Type(), localIface, remote.Address(), remote.Type(), stat.State, stat.Nominated, localIsCellular, remoteIsRelay)
-
-		if !localIsCellular || !remoteIsRelay {
+		if !localIsCellularRelay || !remoteIsRelay {
 			continue
 		}
 
 		handoverLocal = local
 		handoverRemote = remote
 		if stat.State == ice.CandidatePairStateSucceeded || stat.Nominated {
+			ready = true
 			break
 		}
 	}
 
-	if handoverLocal == nil || handoverRemote == nil {
-		return errors.New("no cellular local to remote relay candidate pair found")
-	}
-
-	log.Printf("forcing relay handover via local=%s remote=%s", handoverLocal, handoverRemote)
-	return e.agent.RenominateCandidate(handoverLocal, handoverRemote)
+	return handoverLocal, handoverRemote, ready, nil
 }
 
 func candidateInterfaceName(c ice.Candidate) (string, bool) {
@@ -288,6 +326,117 @@ func candidateInterfaceName(c ice.Candidate) (string, bool) {
 	}
 
 	return "", false
+}
+
+type candidateGatherMode int
+
+const (
+	gatherNonCellular candidateGatherMode = iota
+	gatherCellularOnly
+)
+
+type candidateGatherFilter struct {
+	mu   sync.RWMutex
+	mode candidateGatherMode
+}
+
+func newCandidateGatherFilter() *candidateGatherFilter {
+	return &candidateGatherFilter{mode: gatherNonCellular}
+}
+
+func (f *candidateGatherFilter) Keep(ifaceName string) bool {
+	f.mu.RLock()
+	mode := f.mode
+	f.mu.RUnlock()
+
+	isCellular := isCellularLikeInterface(ifaceName)
+	switch mode {
+	case gatherCellularOnly:
+		return isCellular
+	default:
+		return !isCellular
+	}
+}
+
+func (f *candidateGatherFilter) UseCellularOnly() {
+	f.mu.Lock()
+	f.mode = gatherCellularOnly
+	f.mu.Unlock()
+}
+
+func firstActiveCellularAddress() (InterfaceAddress, error) {
+	addrs, err := ListActiveInterfaceAddrs()
+	if err != nil {
+		return InterfaceAddress{}, err
+	}
+	for _, addr := range addrs {
+		if addr.IsCellularLike {
+			return addr, nil
+		}
+	}
+	return InterfaceAddress{}, errors.New("no active cellular interface with an IPv4 address found")
+}
+
+func prepareAgentForCellularRelayGathering(agent *ice.Agent) error {
+	return runOnAgentLoop(agent, func() error {
+		if err := setAgentCandidateTypes(agent, []ice.CandidateType{ice.CandidateTypeRelay}); err != nil {
+			return err
+		}
+		return resetAgentLastKnownInterfaces(agent)
+	})
+}
+
+func runOnAgentLoop(agent *ice.Agent, fn func() error) error {
+	v := reflect.ValueOf(agent)
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return errors.New("nil ICE agent")
+	}
+
+	field := v.Elem().FieldByName("loop")
+	if !field.IsValid() {
+		return errors.New("ICE agent loop field not found")
+	}
+
+	loop := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+	run := loop.MethodByName("Run")
+	if !run.IsValid() {
+		return errors.New("ICE agent loop Run method not found")
+	}
+
+	var fnErr error
+	fnType := run.Type().In(1)
+	task := reflect.MakeFunc(fnType, func([]reflect.Value) []reflect.Value {
+		fnErr = fn()
+		return nil
+	})
+
+	out := run.Call([]reflect.Value{reflect.ValueOf(context.Background()), task})
+	if len(out) == 1 && !out[0].IsNil() {
+		return out[0].Interface().(error)
+	}
+	return fnErr
+}
+
+func setAgentCandidateTypes(agent *ice.Agent, types []ice.CandidateType) error {
+	v := reflect.ValueOf(agent)
+	field := v.Elem().FieldByName("candidateTypes")
+	if !field.IsValid() {
+		return errors.New("ICE agent candidateTypes field not found")
+	}
+
+	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Set(reflect.ValueOf(types))
+	return nil
+}
+
+func resetAgentLastKnownInterfaces(agent *ice.Agent) error {
+	v := reflect.ValueOf(agent)
+	field := v.Elem().FieldByName("lastKnownInterfaces")
+	if !field.IsValid() {
+		return errors.New("ICE agent lastKnownInterfaces field not found")
+	}
+
+	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Set(reflect.MakeMap(field.Type()))
+	return nil
 }
 
 func injectCustomAgent(g *webrtc.ICEGatherer, agent *ice.Agent) error {
