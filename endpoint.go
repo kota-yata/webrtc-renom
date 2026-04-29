@@ -44,6 +44,11 @@ func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 		ice.WithRemoteIPFilter(isIPv4),
 		ice.WithLoggerFactory(loggerFactory),
 	}
+	if netTransport, err := newDeviceBoundNet(); err != nil {
+		return nil, fmt.Errorf("create device-bound ICE network: %w", err)
+	} else if netTransport != nil {
+		agentOpts = append(agentOpts, ice.WithNet(netTransport))
+	}
 	if cfg.Controlling {
 		agentOpts = append(agentOpts, ice.WithRenomination(ice.DefaultNominationValueGenerator()))
 	}
