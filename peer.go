@@ -82,17 +82,20 @@ func (p *Peer) Run(ctx context.Context) error {
 		}
 	}()
 
+	log.Printf("registering with signaling server peer=%s remote_peer=%s server=%s", p.cfg.PeerID, p.cfg.RemotePeerID, p.cfg.ServerURL)
 	if err := p.client.Register(ctx, RegisterRequest{
 		PeerID:       p.cfg.PeerID,
 		RemotePeerID: p.cfg.RemotePeerID,
 	}); err != nil {
 		return fmt.Errorf("register with signaling server: %w", err)
 	}
+	log.Printf("registered with signaling server peer=%s remote_peer=%s", p.cfg.PeerID, p.cfg.RemotePeerID)
 
 	peerRegisteredCh := make(chan struct{}, 1)
 	remoteParamsCh := make(chan webrtc.ICEParameters, 1)
 	go p.pollSignalEvents(ctx, peerRegisteredCh, remoteParamsCh)
 
+	log.Printf("waiting for remote peer registration peer=%s remote_peer=%s", p.cfg.PeerID, p.cfg.RemotePeerID)
 	select {
 	case <-peerRegisteredCh:
 		log.Printf("remote peer registered; starting ICE exchange peer=%s remote_peer=%s", p.cfg.PeerID, p.cfg.RemotePeerID)
@@ -189,6 +192,7 @@ func (p *Peer) startAudioStreaming() {
 }
 
 func (p *Peer) pollSignalEvents(ctx context.Context, peerRegisteredCh chan<- struct{}, remoteParamsCh chan<- webrtc.ICEParameters) {
+	log.Printf("starting signaling event poll peer=%s", p.cfg.PeerID)
 	for {
 		events, err := p.client.PollEvents(ctx, p.cfg.PeerID, p.cfg.PollTimeout)
 		if err != nil {
