@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pion/webrtc/v4"
@@ -21,9 +22,11 @@ type PeerConfig struct {
 }
 
 type Peer struct {
-	cfg      PeerConfig
-	client   *SignalingClient
-	endpoint *manualEndpoint
+	cfg       PeerConfig
+	client    *SignalingClient
+	endpoint  *manualEndpoint
+	sessionMu sync.RWMutex
+	sessionID string
 }
 
 func NewPeer(cfg PeerConfig) (*Peer, error) {
@@ -82,17 +85,14 @@ func (p *Peer) Run(ctx context.Context) error {
 		}
 	}()
 
-	registerResp, err := p.client.Register(ctx, RegisterRequest{
-		PeerID:       p.cfg.PeerID,
-		RemotePeerID: p.cfg.RemotePeerID,
-	})
+	sessionID, err := p.registerSignalingSession(ctx)
 	if err != nil {
-		return fmt.Errorf("register with signaling server: %w", err)
+		return err
 	}
 
 	peerRegisteredCh := make(chan struct{}, 1)
 	remoteParamsCh := make(chan webrtc.ICEParameters, 1)
-	go p.pollSignalEvents(ctx, registerResp.SessionID, peerRegisteredCh, remoteParamsCh)
+	go p.pollSignalEvents(ctx, peerRegisteredCh, remoteParamsCh)
 
 	select {
 	case <-peerRegisteredCh:
@@ -102,7 +102,7 @@ func (p *Peer) Run(ctx context.Context) error {
 
 	p.endpoint.SetLocalCandidatePublisher(func(c webrtc.ICECandidate) error {
 		return p.client.SendCandidate(ctx, CandidateMessage{
-			SessionID:  registerResp.SessionID,
+			SessionID:  p.currentSessionID(),
 			FromPeerID: p.cfg.PeerID,
 			ToPeerID:   p.cfg.RemotePeerID,
 			Candidate:  c,
@@ -119,7 +119,7 @@ func (p *Peer) Run(ctx context.Context) error {
 	}
 
 	if err := p.client.SendAuth(ctx, AuthMessage{
-		SessionID:  registerResp.SessionID,
+		SessionID:  sessionID,
 		FromPeerID: p.cfg.PeerID,
 		ToPeerID:   p.cfg.RemotePeerID,
 		Params:     localParams,
@@ -151,6 +151,10 @@ func (p *Peer) Run(ctx context.Context) error {
 		go func() {
 			for ev := range events {
 				log.Printf("WiFi disabled or disconnected if=%s removed_ip=%s", ev.IfName, ev.RemovedIP)
+				if err := p.reconnectSignaling(ctx); err != nil {
+					log.Printf("reconnect signaling failed: %v", err)
+					continue
+				}
 				if err := p.endpoint.StartCellularRelayHandover(ctx); err != nil {
 					log.Printf("manual handover failed: %v", err)
 				}
@@ -161,6 +165,42 @@ func (p *Peer) Run(ctx context.Context) error {
 	log.Printf("peer is running; peer=%s controlling=%t", p.cfg.PeerID, p.cfg.Controlling)
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+func (p *Peer) registerSignalingSession(ctx context.Context) (string, error) {
+	registerResp, err := p.client.Register(ctx, RegisterRequest{
+		PeerID:       p.cfg.PeerID,
+		RemotePeerID: p.cfg.RemotePeerID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("register with signaling server: %w", err)
+	}
+
+	p.sessionMu.Lock()
+	p.sessionID = registerResp.SessionID
+	p.sessionMu.Unlock()
+
+	return registerResp.SessionID, nil
+}
+
+func (p *Peer) reconnectSignaling(ctx context.Context) error {
+	for {
+		sessionID, err := p.registerSignalingSession(ctx)
+		if err == nil {
+			log.Printf("reconnected signaling server session=%s", sessionID)
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		log.Printf("reconnect signaling failed: %v", err)
+		select {
+		case <-time.After(time.Second):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 func (p *Peer) startAudioStreaming() {
@@ -190,12 +230,23 @@ func (p *Peer) startAudioStreaming() {
 	}()
 }
 
-func (p *Peer) pollSignalEvents(ctx context.Context, sessionID string, peerRegisteredCh chan<- struct{}, remoteParamsCh chan<- webrtc.ICEParameters) {
+func (p *Peer) currentSessionID() string {
+	p.sessionMu.RLock()
+	sessionID := p.sessionID
+	p.sessionMu.RUnlock()
+	return sessionID
+}
+
+func (p *Peer) pollSignalEvents(ctx context.Context, peerRegisteredCh chan<- struct{}, remoteParamsCh chan<- webrtc.ICEParameters) {
 	for {
+		sessionID := p.currentSessionID()
 		events, err := p.client.PollEvents(ctx, p.cfg.PeerID, sessionID, p.cfg.PollTimeout)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
+			}
+			if sessionID != p.currentSessionID() {
+				continue
 			}
 
 			log.Printf("poll signaling events failed: %v", err)
