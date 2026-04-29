@@ -151,6 +151,16 @@ func NewAudioReceiver(r io.Reader) *AudioReceiver {
 func (ar *AudioReceiver) ReceiveAudio() error {
 	log.Printf("Starting real-time audio playback from stream")
 
+	recorder, err := newWAVRecorder()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := recorder.Close(); err != nil {
+			log.Printf("failed to close WAV recording: %v", err)
+		}
+	}()
+
 	args := []string{
 		"fdsrc", "fd=0", "!",
 		"rawaudioparse", "use-sink-caps=false", "sample-rate=44100", "num-channels=2", "format=pcm", "pcm-format=s16le", "!",
@@ -197,7 +207,12 @@ func (ar *AudioReceiver) ReceiveAudio() error {
 
 		switch buffer[0] {
 		case audioPacketData:
-			written, err := stdin.Write(buffer[1:n])
+			payload := buffer[1:n]
+			if _, err := recorder.Write(payload); err != nil {
+				return fmt.Errorf("failed to write WAV recording: %w", err)
+			}
+
+			written, err := stdin.Write(payload)
 			if err != nil {
 				return fmt.Errorf("failed to write to gstreamer: %w", err)
 			}
