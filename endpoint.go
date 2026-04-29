@@ -52,6 +52,9 @@ func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 		ice.WithContinualGatheringPolicy(ice.GatherContinually),
 		ice.WithNetworkMonitorInterval(250 * time.Millisecond),
 	}
+	if !cfg.Controlling {
+		agentOpts = append(agentOpts, ice.WithBindingRequestHandler(acceptRelayRenominationRequest))
+	}
 	agentOpts = append(agentOpts, ice.WithRenomination(ice.DefaultNominationValueGenerator()))
 
 	api := webrtc.NewAPI()
@@ -206,6 +209,13 @@ func (e *manualEndpoint) AddRemoteCandidate(c webrtc.ICECandidate) error {
 
 func isIPv4(ip net.IP) bool {
 	return ip != nil && ip.To4() != nil
+}
+
+func acceptRelayRenominationRequest(msg *stun.Message, local, _ ice.Candidate, _ *ice.CandidatePair) bool {
+	return msg != nil &&
+		local != nil &&
+		local.Type() == ice.CandidateTypeRelay &&
+		msg.Contains(ice.DefaultNominationAttribute)
 }
 
 func (e *manualEndpoint) StartCellularRelayHandover(ctx context.Context) error {
