@@ -49,9 +49,7 @@ func newManualEndpoint(cfg endpointConfig) (*manualEndpoint, error) {
 	} else if netTransport != nil {
 		agentOpts = append(agentOpts, ice.WithNet(netTransport))
 	}
-	if cfg.Controlling {
-		agentOpts = append(agentOpts, ice.WithRenomination(ice.DefaultNominationValueGenerator()))
-	}
+	agentOpts = append(agentOpts, ice.WithRenomination(ice.DefaultNominationValueGenerator()))
 
 	api := webrtc.NewAPI()
 	gatherer, err := api.NewICEGatherer(webrtc.ICEGatherOptions{
