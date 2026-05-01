@@ -3,6 +3,7 @@
 **/.cache
 **/.codex
 cert/
+.logcat.pid
 
 signaling_server
 signaling-server

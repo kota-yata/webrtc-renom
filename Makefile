@@ -11,10 +11,12 @@ TLS_KEY := $(CURDIR)/cert/server.key
 TLS_CA_CERT := $(TLS_CERT)
 CERT_CN ?= 203.178.143.72
 CERT_SAN ?= IP:203.178.143.72,IP:127.0.0.1,DNS:localhost
-ICE_SERVERS := turn:203.178.143.72:3478?transport=udp,stun:stun.l.google.com:19302
+ICE_SERVERS := turn:203.178.143.72:3478?transport=udp
 ICE_USERNAME := cmp9
 ICE_CREDENTIAL := dc+zjBYP+nf+bC6gXvliLKNgzu8lR3XO
 POLL_TIMEOUT ?= 25s
+LOG_FILE ?= $(CURDIR)/log/wifi_event_$(shell date +%s).log
+LOGCAT_PID_FILE ?= $(CURDIR)/.logcat.pid
 
 .PHONY: build cert check-tls-ca-cert peer run-signal run-controlling-peer run-controlled-peer clean
 
@@ -53,6 +55,13 @@ run-signal: cert
 		--tls-key $(TLS_KEY)
 
 run-controlling-peer:
+	@mkdir -p $(dir $(LOG_FILE))
+	@echo "Starting Wi-Fi logcat monitor -> $(LOG_FILE)"
+	@set -e; \
+	logcat -v time | grep --line-buffered -E "setWifiEnabled" > "$(LOG_FILE)" & \
+	logcat_pid=$$!; \
+	echo $$logcat_pid > "$(LOGCAT_PID_FILE)"; \
+	trap 'status=$$?; echo "Stopping Wi-Fi logcat monitor..."; kill $$logcat_pid 2>/dev/null || true; rm -f "$(LOGCAT_PID_FILE)"; exit $$status' EXIT INT TERM; \
 	$(MAKE) peer PEER_ID=peer-a REMOTE_PEER_ID=peer-b CONTROLLING=1
 
 run-controlled-peer:

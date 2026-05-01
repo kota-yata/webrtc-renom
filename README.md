@@ -18,3 +18,8 @@ On each peer:
 make run-controlling-peer
 make run-controlled-peer
 ```
+
+`run-controlling-peer` also records Wi-Fi enable/disable events from logcat:
+```sh
+make run-controlling-peer LOG_FILE=./log/wifi_event_1.log
+```
