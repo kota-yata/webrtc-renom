@@ -1,0 +1,2 @@
+05-01 23:40:09.452 D/SystemUI( 2568): Tile.WifiTile-->setWifiEnabled: true
+05-01 23:40:09.452 I/WifiService( 1465): setWifiEnabled package=com.android.systemui uid=10184 enable=false isPrivileged=true
